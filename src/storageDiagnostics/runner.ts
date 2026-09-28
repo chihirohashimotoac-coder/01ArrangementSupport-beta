@@ -110,6 +110,9 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
  */
 export const STALE_USAGE_ERROR_NAME = 'StaleUsageError';
 
+/** 書き始める前（前回の残りの削除・反映待ち）に中止されたことを、catch へ伝える印。 */
+const PREPARE_ABORTED = Symbol('prepare-aborted');
+
 export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions): Promise<StorageDiagnosticResult> {
   const { adapter, targetBytes, probeStorage, signal } = options;
   const now = options.now ?? (() => Date.now());
@@ -155,7 +158,9 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
       const hadLeftovers = leftovers.some((value) => value === true);
       await adapter.cleanup();
       for (const [index, other] of others.entries()) {
-        if (leftovers[index + 1] !== true) continue;
+        // 残りが「無い」と確かめられた方式だけを飛ばす。分からない（null）方式も削除を試みる
+        // （無いものの削除は何もしない）。
+        if (leftovers[index + 1] === false) continue;
         try {
           await other.cleanup();
         } catch (error) {
@@ -172,6 +177,8 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
           await sleep(reclaimPollMs);
           before = await safeProbe(probeStorage);
         }
+        // 待っている間に中止されたら、中止として記録する（StaleUsageError にしない）。
+        if (signal?.aborted) throw PREPARE_ABORTED;
         if (stale()) {
           const error = new Error(
             '前回のテストの残りを削除しましたが、Origin Usage にまだ反映されていません。ページを再読み込みしてから測ってください',
@@ -180,10 +187,12 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
           throw error;
         }
       }
+      if (signal?.aborted) throw PREPARE_ABORTED;
       writeStartedMs = now();
       writer = await adapter.open();
     } catch (error) {
-      fail('prepare', error, 0);
+      if (error === PREPARE_ABORTED) status = 'aborted';
+      else fail('prepare', error, 0);
     }
   }
 

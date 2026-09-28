@@ -356,6 +356,41 @@ describe('runStorageDiagnostic', () => {
     expect(blocked.calls.open).toBe(0);
   });
 
+  it('残りの有無が分からない（null）方式も、書き始める前に削除を試みる', async () => {
+    const indexeddb = createFakeAdapter({ backend: 'indexeddb' });
+    const unknown = { ...indexeddb, hasLeftovers: async () => null };
+    const confirmedAbsent = createFakeAdapter({ backend: 'cache' });
+    const result = await runStorageDiagnostic({
+      adapter: createFakeAdapter({ backend: 'opfs' }),
+      otherAdapters: [unknown, confirmedAbsent],
+      targetBytes: 16 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(0),
+      createChunk: zeroChunk,
+    });
+    expect(result.status).toBe('success');
+    expect(indexeddb.calls.cleanup).toBe(1);
+    expect(confirmedAbsent.calls.cleanup).toBe(0);
+  });
+
+  it('前回の残りの反映を待っている間に中止されたら、中止として記録する（StaleUsageError にしない）', async () => {
+    const controller = new AbortController();
+    const adapter = createFakeAdapter({ backend: 'cache' });
+    const result = await runStorageDiagnostic({
+      adapter: { ...adapter, hasLeftovers: async () => true },
+      targetBytes: 32 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(400 * MIB),
+      sleep: async () => {
+        controller.abort();
+      },
+      signal: controller.signal,
+      createChunk: zeroChunk,
+    });
+    expect(result).toMatchObject({ status: 'aborted', failedPhase: null, errorName: null, writtenBytes: 0 });
+    expect(adapter.calls.open).toBe(0);
+  });
+
   it('中止・削除の失敗・usage 不明のときは反映を待たない', async () => {
     const sleep = async () => {
       throw new Error('待たないはず');
