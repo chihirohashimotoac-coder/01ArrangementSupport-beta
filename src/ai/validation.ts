@@ -174,6 +174,14 @@ const NUMBER_PATTERN = /\d+(?:\.\d+)?/g;
 /** 本数・何投目などに使う小さな数は、Evidence に無くても主張とみなさない。 */
 const FREE_NUMBER_MAX = 3;
 
+/**
+ * 表記ゆれで検証をすり抜けないよう、比べる前に正規化する。
+ * NFKC で全角英数字（Ｔ２０・７７・Ｃ）を半角へ、大文字化で小文字の的（t20・d16・bull）を揃える。
+ */
+function normalizeForClaims(text: string): string {
+  return text.normalize('NFKC').toUpperCase();
+}
+
 function tokensOf(text: string, pattern: RegExp): Set<string> {
   return new Set([...text.matchAll(pattern)].map((match) => match[1] ?? match[0]));
 }
@@ -202,21 +210,23 @@ function reasonCodesOf(evidence: AiEvidence): Set<string> {
 export function findUnsupportedClaims(output: AiTextOutput, evidence: AiEvidence): string[] {
   const issues: string[] = [];
   const source = serializeEvidence(evidence);
+  const normalizedSource = normalizeForClaims(source);
+  const text = normalizeForClaims(output.text);
 
-  const allowedSegments = tokensOf(source, SEGMENT_PATTERN);
-  for (const segment of tokensOf(output.text, SEGMENT_PATTERN)) {
+  const allowedSegments = tokensOf(normalizedSource, SEGMENT_PATTERN);
+  for (const segment of tokensOf(text, SEGMENT_PATTERN)) {
     if (!allowedSegments.has(segment)) issues.push(`根拠の無い的: ${segment}`);
   }
 
   const allowedGrades = new Set(
     [...source.matchAll(/"grade":"([SABC])"/g)].map((match) => match[1]),
   );
-  for (const grade of tokensOf(output.text, GRADE_PATTERN)) {
+  for (const grade of tokensOf(text, GRADE_PATTERN)) {
     if (!allowedGrades.has(grade.toUpperCase())) issues.push(`根拠の無い推奨度: ${grade}`);
   }
 
-  const allowedNumbers = tokensOf(source, NUMBER_PATTERN);
-  for (const value of tokensOf(output.text, NUMBER_PATTERN)) {
+  const allowedNumbers = tokensOf(normalizedSource, NUMBER_PATTERN);
+  for (const value of tokensOf(text, NUMBER_PATTERN)) {
     if (Number(value) <= FREE_NUMBER_MAX) continue;
     if (!allowedNumbers.has(value)) issues.push(`根拠の無い数値: ${value}`);
   }
