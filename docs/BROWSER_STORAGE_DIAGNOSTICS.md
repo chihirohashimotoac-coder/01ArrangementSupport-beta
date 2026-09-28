@@ -133,7 +133,9 @@ origin の状態（開始前）→ 前回の残りを削除 → origin の状態
   - Cache API: `caches.delete('01as-beta-storage-diagnostic')`
 - 削除に失敗したら、結果に `cleanup.status: "failed"` と error を残し、画面に **`diagnostic cleanup failed: <name>: <message>`** を表示する
   （黙って成功にしない）
-- ページを閉じるなどで後片付けが間に合わなかった残りは、次のテストの前に削除する。画面の「前回のテストの残り」で確認でき、
+- ページを閉じる・削除に失敗したなどで残ったデータは、次のテストの前に削除する。**どの方式のテストでも、書き始める前に
+  3 方式すべての残りを調べて削除する**（前のテストで削除に失敗した方式の残りが quota を使ったまま、別の方式を測らないように）。
+  ほかの方式の残りを削除できなければ、書き込みを始めない（`failedPhase: "prepare"`）。画面の「前回のテストの残り」で確認でき、
   「診断用のデータを削除」でも消せる（失敗したら `diagnostic cleanup failed — …` と表示）
 
 ### 4.4 削除の反映（usageReclaimed）
@@ -164,7 +166,9 @@ origin の状態（開始前）→ 前回の残りを削除 → origin の状態
   - 削除が usage に反映されなかった（`usageReclaimed: false`）
   - 前回の残りの削除が反映されず、書き始めなかった（`StaleUsageError`）
 - 結果（数値と文字列だけ）は Lab 専用のキー `01as-beta:ai.storage-diagnostic.results.v1`（localStorage、直近 30 件）に残し、
-  再読み込みをまたいで比較に使う。「記録した結果を消す」で消せる。01AS の利用者データ（`01as-beta:oas.*`）とは別のキー
+  再読み込みをまたいで比較に使う。「記録した結果を消す」で消せる。01AS の利用者データ（`01as-beta:oas.*`）とは別のキー。
+  保存できなかったとき（localStorage が使えない・容量不足）は、再読み込みで結果が消えるので、画面に警告を出して
+  先に JSON を保存するよう求める
 - 3 方式の順は OPFS → IndexedDB → Cache API（削除が反映されにくい Cache API を最後）
 - 比較の表に各方式の **Usage before** を出す（前の方式の残りが混ざっていないかを確かめられる）
 - **最も厳密に比べるには、方式ごとにページを再読み込みしてから 1 方式ずつ測る**

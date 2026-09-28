@@ -377,6 +377,39 @@ describe('StorageDiagnosticsSection', () => {
     await settled();
   });
 
+  it('再読み込みのあと別の方式を測るときも、先にほかの方式の残り（削除に失敗した分）を削除する', async () => {
+    const user = userEvent.setup();
+    const adapters = fakes();
+    // 前のページで OPFS の削除に失敗し、データが残っている想定。
+    const writer = await adapters.opfs.open();
+    await writer.write(new Uint8Array(1024), 0);
+    // usage は保存されている分だけ増える（OPFS の残りを消すと減る）。
+    const probeStorage = async (): Promise<OriginStorageStatus> => ({
+      usageBytes: 300 * MIB + adapters.opfs.storedBytes() + adapters.indexeddb.storedBytes(),
+      quotaBytes: 10 * 1024 * MIB,
+      persisted: false,
+    });
+    renderSection({ adapters, probeStorage });
+    await waitFor(() => expect(screen.getByTestId('diag-leftovers')).toHaveTextContent('OPFS: あり'));
+    await user.click(screen.getByTestId('diag-start-indexeddb'));
+    await waitFor(() => expect(screen.getByTestId('diag-status-indexeddb')).toHaveTextContent('IndexedDB 4 MiB書き込み成功'));
+    expect(adapters.opfs.storedBytes()).toBe(0);
+    await waitFor(() => expect(screen.getByTestId('diag-leftovers')).toHaveTextContent('OPFS: なし'));
+  });
+
+  it('結果を保存できなければ、再読み込みの前に JSON を保存するよう警告する', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    renderSection({ adapters: fakes() });
+    await user.click(screen.getByTestId('diag-start-opfs'));
+    expect(await screen.findByTestId('diag-persist-failed')).toHaveTextContent('先に「診断結果を保存（JSON）」を押してください');
+    // 画面の結果はそのまま使える。
+    expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('OPFS 4 MiB書き込み成功');
+    expect(screen.getByTestId('diag-export')).toBeEnabled();
+  });
+
   it('使えない方式は「使えません」と表示し、測らない', async () => {
     const user = userEvent.setup();
     const adapters = fakes({ opfs: { available: false } });

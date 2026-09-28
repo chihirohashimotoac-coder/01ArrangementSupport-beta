@@ -125,6 +125,10 @@ export default function StorageDiagnosticsSection({
   const [revision, setRevision] = useState(0);
   /** これまでの結果（再読み込みの前の結果を含む。古い順）。 */
   const [results, setResults] = useState<StorageDiagnosticResult[]>(() => loadDiagnosticResults());
+  /** 実行中の追記で使う、最新の結果（state の更新を待たずに保存するため）。 */
+  const resultsRef = useRef(results);
+  /** 結果を localStorage に保存できなかった（再読み込みすると、その結果は消える）。 */
+  const [persistFailed, setPersistFailed] = useState(false);
   /**
    * このページで測った結果のうち、診断用のデータ（またはその usage）が残ったもの（`blockReasonOf`）。
    * あれば、再読み込みするまで次のテストを始めない（残りの分が quota に数えられ、次の方式が少なく見えるため）。
@@ -210,6 +214,7 @@ export default function StorageDiagnosticsSection({
           setProgress({ backend, writtenBytes: 0, targetBytes: size.bytes });
           const result = await runStorageDiagnostic({
             adapter,
+            otherAdapters: DIAGNOSTIC_BACKENDS.filter((item) => item !== backend && adapters[item].isAvailable()).map((item) => adapters[item]),
             targetBytes: size.bytes,
             chunkBytes,
             probeStorage,
@@ -219,11 +224,11 @@ export default function StorageDiagnosticsSection({
             },
           });
           if (!mountedRef.current) return;
-          setResults((items) => {
-            const next = [...items, result];
-            saveDiagnosticResults(next);
-            return next;
-          });
+          const next = [...resultsRef.current, result];
+          resultsRef.current = next;
+          setResults(next);
+          // 保存できなければ、再読み込みで結果が消える。黙って続けず、JSON の保存を促す。
+          if (!saveDiagnosticResults(next)) setPersistFailed(true);
           setRevision((value) => value + 1);
           if (blockReasonOf(result) !== null) {
             // 診断用のデータ（またはその usage）が残ったまま次の方式を測ると、その方式の結果がずれる（Case を誤る）。
@@ -375,7 +380,9 @@ export default function StorageDiagnosticsSection({
           disabled={!idle || results.length === 0}
           onClick={() => {
             clearDiagnosticResults();
+            resultsRef.current = [];
             setResults([]);
+            setPersistFailed(false);
           }}
         >
           記録した結果を消す
@@ -390,6 +397,13 @@ export default function StorageDiagnosticsSection({
       {cleanupMessage && (
         <p className={cleanupMessage.ok ? 'lab__message' : 'lab__message lab__failure'} role={cleanupMessage.ok ? 'status' : 'alert'} data-testid="diag-cleanup-message">
           {cleanupMessage.text}
+        </p>
+      )}
+
+      {persistFailed && (
+        <p className="lab__message lab__failure" role="alert" data-testid="diag-persist-failed">
+          診断結果をこのブラウザに保存できませんでした（localStorage が使えない・容量不足）。ページを再読み込みすると結果が消えるので、
+          先に「診断結果を保存（JSON）」を押してください。
         </p>
       )}
 
@@ -410,8 +424,10 @@ export default function StorageDiagnosticsSection({
           )}
           <p>
             ページを再読み込みしてから、まだ測っていない方式の「テスト」を押してください（それまで次のテストは始められません。
-            削除できなかったデータは、再読み込みのあとのテストの前にも削除を試みます）。
-            ここまでの結果は再読み込みしても残り、比較に使えます。
+            どの方式のテストでも、書き始める前に 3 方式すべての診断用データの残りを削除します）。
+            {persistFailed
+              ? '結果を保存できなかったため、再読み込みすると結果が消えます。先に「診断結果を保存（JSON）」を押してください。'
+              : 'ここまでの結果は再読み込みしても残り、比較に使えます。'}
           </p>
         </div>
       )}

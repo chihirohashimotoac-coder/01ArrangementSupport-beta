@@ -13,7 +13,7 @@
  *   Chromium では Cache API の削除が、ページの再読み込みまで usage に反映されないことがある）
  * - 例外を投げない（どの失敗も結果として返す）
  */
-import type { DiagnosticBackend } from './constants';
+import { DIAGNOSTIC_BACKEND_LABEL, type DiagnosticBackend } from './constants';
 import type {
   DiagnosticCleanup,
   DiagnosticPhase,
@@ -92,6 +92,11 @@ export interface RunStorageDiagnosticOptions {
   readonly reclaimTimeoutMs?: number;
   readonly reclaimPollMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * ほかの方式の Adapter。書き始める前に、ほかの方式に残った診断用のデータも削除する
+   * （前のテストで削除に失敗した方式の残りが quota を使ったまま、この方式を測らないように）。
+   */
+  readonly otherAdapters?: readonly DiagnosticStorageAdapter[];
 }
 
 export const DEFAULT_RECLAIM_TIMEOUT_MS = 5_000;
@@ -143,9 +148,22 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
     status = 'aborted';
   } else {
     try {
-      // 前回のテストが途中で閉じられて残ったデータを消してから測る（残りがあると容量の比較がずれる）。
-      const hadLeftovers = await adapter.hasLeftovers().catch(() => null);
+      // 前回のテストが途中で閉じられた・削除に失敗したなどで残ったデータを、この方式だけでなく
+      // ほかの方式の分も消してから測る（残りがあると、この方式が使える容量が少なく見える）。
+      const others = options.otherAdapters ?? [];
+      const leftovers = await Promise.all([adapter, ...others].map((item) => item.hasLeftovers().catch(() => null)));
+      const hadLeftovers = leftovers.some((value) => value === true);
       await adapter.cleanup();
+      for (const [index, other] of others.entries()) {
+        if (leftovers[index + 1] !== true) continue;
+        try {
+          await other.cleanup();
+        } catch (error) {
+          const wrapped = new Error(`${DIAGNOSTIC_BACKEND_LABEL[other.backend]} に残った診断用のデータを削除できませんでした: ${errorMessageOf(error)}`);
+          wrapped.name = errorNameOf(error) ?? 'Error';
+          throw wrapped;
+        }
+      }
       before = await safeProbe(probeStorage);
       if (hadLeftovers === true && initial.usageBytes !== null) {
         // 残りの削除が usage に反映されるのを待つ。反映されないまま測ると、基準に残りの分が含まれてしまう。

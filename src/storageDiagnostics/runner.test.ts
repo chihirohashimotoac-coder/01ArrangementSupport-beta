@@ -318,6 +318,44 @@ describe('runStorageDiagnostic', () => {
     expect(adapter.calls.open).toBe(0);
   });
 
+  it('書き始める前に、ほかの方式に残った診断用のデータも削除する（削除できなければ書き始めない）', async () => {
+    const opfs = createFakeAdapter({ backend: 'opfs' });
+    const leftover = await opfs.open();
+    await leftover.write(new Uint8Array(1024), 0);
+    const cache = createFakeAdapter({ backend: 'cache' });
+    const indexeddb = createFakeAdapter({ backend: 'indexeddb' });
+    const result = await runStorageDiagnostic({
+      adapter: indexeddb,
+      otherAdapters: [opfs, cache],
+      targetBytes: 16 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(300 * MIB, 299 * MIB, 315 * MIB, 299 * MIB),
+      createChunk: zeroChunk,
+    });
+    expect(result.status).toBe('success');
+    expect(opfs.storedBytes()).toBe(0);
+    expect(opfs.calls.cleanup).toBe(1);
+    // 残りの無い方式は触らない。
+    expect(cache.calls.cleanup).toBe(0);
+    expect(result.originUsageBefore).toBe(299 * MIB);
+
+    const locked = createFakeAdapter({ backend: 'opfs', cleanupError: Object.assign(new Error('locked'), { name: 'NoModificationAllowedError' }) });
+    const lockedWriter = await locked.open();
+    await lockedWriter.write(new Uint8Array(1024), 0);
+    const blocked = createFakeAdapter({ backend: 'indexeddb' });
+    const failed = await runStorageDiagnostic({
+      adapter: blocked,
+      otherAdapters: [locked],
+      targetBytes: 16 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(0),
+      createChunk: zeroChunk,
+    });
+    expect(failed).toMatchObject({ status: 'failed', failedPhase: 'prepare', errorName: 'NoModificationAllowedError', writtenBytes: 0 });
+    expect(failed.errorMessage).toContain('OPFS に残った診断用のデータを削除できませんでした: locked');
+    expect(blocked.calls.open).toBe(0);
+  });
+
   it('中止・削除の失敗・usage 不明のときは反映を待たない', async () => {
     const sleep = async () => {
       throw new Error('待たないはず');
