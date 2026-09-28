@@ -5,9 +5,14 @@ PR の内容を、マージ前にブラウザで確認するための仕組み�
 
 ---
 
-## 1. 現在の構成
+> **Beta リポジトリについて**: この節は Production リポジトリでの構成です。
+> Beta リポジトリ（`01ArrangementSupport-beta`）へ Vercel の GitHub App を接続するかどうかは
+> リポジトリオーナーの判断で、接続されていない場合は PR にプレビュー URL が付きません。
+> Beta の本番配信先は https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/ です。
 
-このリポジトリには **Vercel の GitHub App が接続済み**です。
+## 1. 現在の構成（Production）
+
+Production リポジトリには **Vercel の GitHub App が接続済み**です。
 PR を作る／push するたびに Vercel が自動でビルドし、PR へプレビュー URL をコメントします。
 
 ```

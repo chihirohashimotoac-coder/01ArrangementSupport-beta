@@ -831,7 +831,7 @@ test('TRAINING: 無限モードは 10 問を超えても続く', async ({ page }
 test('TRAINING: 読み取れない古い履歴を正答率へ混ぜない', async ({ page }) => {
   await page.evaluate(() => {
     window.localStorage.setItem(
-      'oas.training.v1',
+      '01as-beta:oas.training.v1',
       JSON.stringify({
         version: 1,
         records: [
@@ -885,7 +885,7 @@ test('TRAINING: 保存済みV2履歴のカテゴリは日本語表示だけを�
       elapsedMs: 3000,
     };
     window.localStorage.setItem(
-      'oas.training.v1',
+      '01as-beta:oas.training.v1',
       JSON.stringify({
         version: 2,
         records: [
@@ -1080,7 +1080,7 @@ test('v1.3.2: 119 / 2 本では、警告・NEXT VISIT・実戦入力が近い位
 async function withPreferredDoubles(page: Page, doubles: readonly string[]) {
   await page.addInitScript((ids) => {
     window.localStorage.setItem(
-      'oas.preferences.v1',
+      '01as-beta:oas.preferences.v1',
       JSON.stringify({ version: 1, preferredDoubles: ids, setupMainTarget: 'T20', theme: 'dark' }),
     );
   }, doubles);

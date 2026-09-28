@@ -10,6 +10,7 @@ import { scoringTripleFirstSequenceTables, sequenceTable } from './engine/setup/
 import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
+import { CHANNEL_BADGE } from './config/releaseChannel';
 import './App.css';
 
 type Tab =
@@ -133,6 +134,9 @@ export default function App() {
           onClick={() => setTab('home')}
         >
           01 Arrangement Support
+          <span className="app__channel" data-testid="channel-badge">
+            {CHANNEL_BADGE}
+          </span>
         </button>
         <button
           type="button"

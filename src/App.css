@@ -35,6 +35,12 @@
   var(--accent-soft) 47% 52%, transparent 53%), var(--surface); box-shadow: var(--inner-highlight),
   var(--shadow-sm); font-size: 0.75rem; font-weight: 850; letter-spacing: 0.05em;
 }
+/* Beta 版であることを示す小さな識別表示。Production と取り違えないためだけのもの。 */
+.app__channel {
+  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.35rem; vertical-align: 0.1em;
+  font-size: 0.6rem; font-weight: 850; letter-spacing: 0.08em; color: var(--accent);
+  border: 1px solid var(--border-strong); border-radius: 0.3rem;
+}
 .app__settings {
   flex: 0 0 auto;
   font-size: 0.78rem; font-weight: 740; color: var(--text-secondary); background: var(--surface);

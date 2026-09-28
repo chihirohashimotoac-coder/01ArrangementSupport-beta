@@ -1,5 +1,5 @@
 /**
- * GitHub Pages のサブパス（/01ArrangementSupport/）向けビルドの検証。
+ * GitHub Pages のサブパス（/01ArrangementSupport-beta/）向けビルドの検証。
  *
  * E2E は base = / のビルドに対して走るため、サブパス配信でだけ壊れる不具合
  * （絶対パスで書かれた asset、base を含まない manifest など）を拾えない。
@@ -16,13 +16,26 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const base = process.env.VITE_BASE_PATH ?? '/01ArrangementSupport/';
+const base = process.env.VITE_BASE_PATH ?? '/01ArrangementSupport-beta/';
+/*
+ * Production は同じ origin の /01ArrangementSupport/ で配信される。
+ * Service Worker のスコープは URL の前方一致で決まるため、Beta の base が
+ * Production のスコープに含まれてしまうと、Production の Service Worker が
+ * Beta のページを制御できてしまう。その逆も同じ。
+ */
+const PRODUCTION_BASE = '/01ArrangementSupport/';
+const BETA_CACHE_ID = '01as-beta';
 const outDir = resolve(root, 'dist-base-check');
 
 const problems = [];
 const check = (condition, message) => {
   if (!condition) problems.push(message);
 };
+
+check(
+  !base.startsWith(PRODUCTION_BASE) && !PRODUCTION_BASE.startsWith(base),
+  `base (${base}) が Production (${PRODUCTION_BASE}) の Service Worker スコープと重なります。`,
+);
 
 rmSync(outDir, { recursive: true, force: true });
 // Node's execFileSync does not resolve npx.cmd on Windows; invoke the locked local Vite directly.
@@ -81,6 +94,15 @@ try {
         `manifest.${key} が base (${base}) 配下ではありません: ${manifest[key]}`,
       );
     }
+    // Production と取り違えないよう、Beta と分かる名前でインストールされる。
+    check(
+      typeof manifest.name === 'string' && manifest.name.includes('Beta'),
+      `manifest.name が Beta 版と識別できません: ${manifest.name}`,
+    );
+    check(
+      typeof manifest.short_name === 'string' && manifest.short_name.includes('Beta'),
+      `manifest.short_name が Beta 版と識別できません: ${manifest.short_name}`,
+    );
     for (const icon of manifest.icons ?? []) {
       const path = icon.src.startsWith(base) ? icon.src.slice(base.length) : icon.src;
       check(existsSync(join(outDir, path)), `manifest のアイコン ${icon.src} が見つかりません。`);
@@ -118,6 +140,11 @@ try {
     check(
       skipWaitingCalls === 1,
       `sw.js の skipWaiting() が ${skipWaitingCalls} 回あります（メッセージ受信時の 1 回だけにしてください）。`,
+    );
+    // Cache Storage の名前を Production と分ける（workbox の cacheId）。
+    check(
+      swSource.includes(`setCacheNameDetails({prefix:"${BETA_CACHE_ID}"})`),
+      `sw.js が Beta 専用の cacheId (${BETA_CACHE_ID}) を使っていません。`,
     );
     check(
       swSource.includes('clientsClaim()'),

@@ -6,23 +6,24 @@
     <meta name="theme-color" content="#07111f" />
     <meta
       name="description"
-      content="スティールダーツ01のチェックアウトとセットアップを、理由つきで学べるオフラインPWA。"
+      content="01 Arrangement Support の Beta 版。スティールダーツ01のチェックアウトとセットアップを、理由つきで学べるオフラインPWA。"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="01アレンジ" />
+    <meta name="apple-mobile-web-app-title" content="01AS Beta" />
     <link rel="icon" type="image/png" sizes="32x32" href="%BASE_URL%icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="48x48" href="%BASE_URL%icons/favicon-48.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon-180.png" />
     <script>
+      // Beta は Production（oas.*）のキーを読まない。キーは src/storage/preferences.ts の PREFERENCES_KEY と同じ。
       try {
-        const preferences = JSON.parse(localStorage.getItem('oas.preferences.v1') ?? '{}');
+        const preferences = JSON.parse(localStorage.getItem('01as-beta:oas.preferences.v1') ?? '{}');
         document.documentElement.dataset.theme = preferences.theme === 'light' ? 'light' : 'dark';
       } catch {
         document.documentElement.dataset.theme = 'dark';
       }
     </script>
-    <title>01 Arrangement Support</title>
+    <title>01 Arrangement Support Beta</title>
   </head>
   <body>
     <div id="root"></div>

@@ -10,10 +10,13 @@ test('manifest と Service Worker が配信される', async ({ page, request })
   expect(manifest.ok()).toBe(true);
   const body = (await manifest.json()) as {
     name: string;
+    short_name: string;
     display: string;
     icons: Array<{ src: string; sizes: string; purpose?: string }>;
   };
-  expect(body.name).toBe('01 Arrangement Support');
+  // Beta 版として Production と見分けられる名前でインストールされる。
+  expect(body.name).toBe('01 Arrangement Support Beta');
+  expect(body.short_name).toBe('01AS Beta');
   expect(body.display).toBe('standalone');
   expect(body.icons.some((icon) => icon.sizes === '512x512')).toBe(true);
   expect(body.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
@@ -120,4 +123,53 @@ test('キーボードだけで盤面を操作できる', async ({ page }) => {
   await page.getByTestId('segment-s19-outer').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('status-left')).toHaveText('84');
+});
+
+/*
+ * Beta と Production は同じ origin を共有するので localStorage も共有される。
+ * Production の保存データがある端末で Beta を使っても、Beta はそれを
+ * 読まない・書き換えない・消さない（src/storage/betaIsolation.test.ts の実ブラウザ版）。
+ */
+test('Beta は Production の保存データを読まず、書き換えも削除もしない', async ({ page }) => {
+  const production = {
+    'oas.preferences.v1': JSON.stringify({
+      version: 1,
+      preferredDoubles: ['D16'],
+      setupMainTarget: 'T19',
+      theme: 'light',
+    }),
+    'oas.training.v1': JSON.stringify({ version: 2, records: [], migrationSkippedCount: 0 }),
+    'oas.simulation.v1': JSON.stringify({ version: 1, startScore: 301 }),
+  };
+  await page.goto('/');
+  await page.evaluate((entries) => {
+    window.localStorage.clear();
+    for (const [key, value] of Object.entries(entries)) window.localStorage.setItem(key, value);
+  }, production);
+  await page.reload();
+
+  // Production の Light テーマを読んでいない（Beta の既定 Dark のまま）。
+  await expect(page.getByTestId('channel-badge')).toHaveText('BETA');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+  // Beta で設定を変えると、Beta のキーにだけ保存される。
+  await page.getByTestId('nav-settings').click();
+  await page.getByTestId('theme-light').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+  const stored = await page.evaluate(() => {
+    const all: Record<string, string | null> = {};
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)!;
+      all[key] = window.localStorage.getItem(key);
+    }
+    return all;
+  });
+  for (const [key, value] of Object.entries(production)) expect(stored[key], key).toBe(value);
+  expect(JSON.parse(stored['01as-beta:oas.preferences.v1'] ?? '{}').theme).toBe('light');
+  // Beta が作ったキーはすべて Beta の名前空間にある。
+  for (const key of Object.keys(stored)) {
+    if (key in production) continue;
+    expect(key.startsWith('01as-beta:'), key).toBe(true);
+  }
 });

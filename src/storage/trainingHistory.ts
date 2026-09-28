@@ -23,8 +23,9 @@ import {
   type TrainingKind,
 } from '../engine/training/model';
 import { readJson, removeKey, writeJson } from './localJson';
+import { namespacedKey } from './namespace';
 
-export const TRAINING_HISTORY_KEY = 'oas.training.v1';
+export const TRAINING_HISTORY_KEY = namespacedKey('oas.training.v1');
 
 /** 保存するレコードの上限（localStorage を圧迫しないため）。 */
 export const MAX_RECORDS = 500;
