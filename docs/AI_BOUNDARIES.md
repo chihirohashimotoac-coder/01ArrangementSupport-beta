@@ -132,7 +132,8 @@ AI にも決定論的な説明にも**事実を補わせず**、`{ status: 'insu
   （利用者データとは別。モデルを削除しても設定・学習履歴・Benchmark の評価は消えません。同 11.4 節）。
 - 現時点で通信する AI Provider は存在しません。`src/ai/**` は通信 API を使いません
   （`src/ai/architecture.test.ts` で検査）。Lab でモデルを取得するのは WebLLM の内部処理で、
-  確認画面で「ダウンロードを開始」を押したときだけです。
+  確認画面で「ダウンロードを開始」を押したときだけです。WebLLM のキャッシュを一括削除する処理は持たず、
+  削除は対象モデル単位だけです（KNOWN LIMITATION。`docs/APPROVALS.md` AI-3）。
 
 ---
 
@@ -153,12 +154,14 @@ AI の説明を作る過程でデータの問題に気づいても**修正せず
 さらに、次の変更は**人間の承認を経てから**別 PR で行います。
 
 - AI モデル・推論ライブラリ（WebLLM / transformers.js / llama.cpp・wasm 等）の追加
-  （PR #2 で、開発者向け Benchmark Lab の primary runtime 候補として WebLLM を版固定で追加。
-  利用者向けの機能では使っていません。ほかの Runtime の追加は引き続き承認が必要）
+  （WebLLM 0.2.85 は、開発者向け Benchmark Lab で候補モデルを実測する目的に限って承認済み。
+  `docs/APPROVALS.md` AI-1。正式採用・Production への採用ではない。ほかの Runtime の追加は引き続き承認が必要）
 - WebGPU 推論の導入
 - 外部 AI API（OpenAI / Claude / Gemini 等）への接続・API key の導入
 - backend（Cloudflare Worker / Supabase / Firebase 等）の追加
 - Model Catalog へ実モデルを追加すること、実際のモデルダウンロード処理を入れること
 - Developer Gate を既定で開けること、AI の説明をユーザーへ公開すること
+  （Beta の GitHub Pages 成果物に限って Gate を開くことは PR #2 で承認済み。`docs/APPROVALS.md` AI-2。
+  通常の CI・ローカルの既定は閉のまま。一般ユーザー向けの画面は AI の説明を出さない）
 - Evidence の範囲を広げること（特に個人の履歴・自由入力を渡すこと）
 - この文書の AI MUST NOT / AI MAY の変更

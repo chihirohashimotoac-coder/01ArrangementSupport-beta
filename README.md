@@ -12,8 +12,9 @@
 > - **AI 機能は実験段階**です。**AI モデルを導入していなければ、従来の 01 Arrangement Support として動作します。**
 >   将来、ローカル AI モデルを利用者が選んでダウンロードし、使うモデルを選ぶと AI による説明・振り返りを
 >   利用できるようにする予定です（AI の ON / OFF スイッチではなく、モデルの導入・選択で決まります）。
->   この版には AI モデルも外部 AI API も入っていません。開発者向けのビルド（Developer Gate）でだけ、
->   候補モデルを比較評価する **AI MODEL LAB** を使えます（`docs/AI_MODEL_BENCHMARK.md`）。
+>   この版には AI モデルも外部 AI API も入っていません。Beta の公開版（GitHub Pages）では、設定画面の
+>   **DEVELOPER → AI MODEL LAB** から、候補モデルを比較評価する開発者向けの実験機能を使えます
+>   （モデルは確認のあとにだけダウンロードします。正式採用は未定。`docs/AI_MODEL_BENCHMARK.md`）。
 > - **Decision Engine は従来どおり決定論的**です。チェックアウト・セットアップ・推奨度・Bust 判定などは
 >   すべて rule based engine が決め、**AI は判断を行いません**。AI は engine の判断を説明する役割に限定します
 >   （`docs/AI_ARCHITECTURE.md` / `docs/AI_BOUNDARIES.md`）。
@@ -69,7 +70,11 @@ npm run import:checkout   # 添付 Excel から基準ルートデータを再生
 npm run audit:training    # TRAINING の大量出題監査
 npm run audit:simulation  # SIMULATION の散布モデル統計監査
 VITE_AI_FEATURES=on npm run dev   # 開発者向け: 設定 → DEVELOPER → AI MODEL LAB
+npm run test:e2e:gate-open         # GitHub Pages と同じ設定（base path ＋ Gate open）の成果物の E2E
 ```
+
+通常の `npm run build` / `npm run test:e2e` は Developer Gate を閉じたまま動きます。
+GitHub Pages へ出す成果物だけが `npm run build:pages`（base path ＋ `VITE_AI_FEATURES=on`）で Gate を開きます。
 
 AI MODEL LAB（ローカル AI モデルの Benchmark）は手動で実行します。CI ではモデルを取得しません
 （Mock Runtime で検査）。手順は `docs/AI_MODEL_BENCHMARK.md`。

@@ -171,13 +171,20 @@ engine evidence を根拠にした AI Coach。
   `src/engine/**`・`src/domain/**`・`src/data/**`・`src/storage/**` から `src/ai/**` を import しない。
 - UI から直接モデルを呼ばない。必ず `src/ai/explain.ts` の安全な呼び出し
   （検証・タイムアウト・fallback 付き）を通す。
+  **唯一の例外**は開発者向け AI MODEL LAB の Benchmark（`src/ai/benchmark/runner.ts`）で、候補モデルの
+  生の応答を測るため explain.ts を通さずに Benchmark Runtime を呼ぶ。runner はタイムアウトと、explain.ts と
+  同じ検証関数を持つ。結果は計測値として Lab に表示するだけで、アプリの説明・engine へは戻さない
+  （`runtime.generate` を呼べるのは runner だけ。`src/ai/architecture.test.ts` で検査）。
 - AI 機能を使えるかどうかは **利用者がローカル AI モデルを導入・選択しているか**で決まる
   （`src/ai/models/`）。モデル未導入・未選択なら従来の 01AS として動作すること。
   利用者向けの「AI ON / OFF」スイッチを主要な操作にしない。
 - `VITE_AI_FEATURES` は**開発者向けの experimental kill switch**（Developer Gate、既定は閉）。
-  利用者向けの設定ではない。
-- 具体的なモデル名は Model Catalog のデータにだけ書く。モデルを削除しても利用者データ
+  利用者向けの設定ではない。Beta の GitHub Pages 成果物に限って開く（`scripts/lib/pagesBuild.mjs`・
+  `docs/APPROVALS.md` AI-2）。通常の CI・ローカルのビルドは閉のまま。
+- 具体的なモデル名は Model Catalog と Benchmark 候補（`src/ai/benchmark/candidates.ts`）のデータにだけ書く。モデルを削除しても利用者データ
   （設定・学習履歴・SIMULATION 設定）を消さない。
 - モデル・推論ライブラリ・外部 AI API・API key・backend を追加する PR は、
   `docs/AI_EVALUATION.md` の評価と人間の承認を経てから。
+  WebLLM 0.2.85 は Benchmark Lab での実測に限って承認済み（`docs/APPROVALS.md` AI-1）。正式採用ではない。
+- WebLLM のキャッシュ（`webllm/*`）を一括削除しない。削除は対象モデル単位だけ（`docs/APPROVALS.md` AI-3）。
 

@@ -15,7 +15,11 @@ Engine が渡した Evidence を
 
 です。有名さ・一般的な LLM benchmark の高さだけでは採用しません。
 
-関連: `docs/AI_EVALUATION.md`（評価基準）・`docs/AI_ARCHITECTURE.md`（構造）・`docs/AI_BOUNDARIES.md`（AI の役割）。
+関連: `docs/AI_EVALUATION.md`（評価基準）・`docs/AI_ARCHITECTURE.md`（構造）・`docs/AI_BOUNDARIES.md`（AI の役割）・
+`docs/APPROVALS.md` AI-1〜3（承認の範囲）。
+
+> **承認の範囲**: `@mlc-ai/web-llm` 0.2.85 は、この Lab で候補モデルを実測する目的に限って承認されています
+> （2026-09-28・`docs/APPROVALS.md` AI-1）。一般ユーザー向け AI 機能・Production・将来の正式 Runtime への採用ではありません。
 
 ---
 
@@ -66,6 +70,10 @@ engine を呼んで Evidence を作るのはデータセットの定義（`src/l
 
 実モデルの Benchmark は**手動実行**です。CI ではモデルを取得しません（Mock Runtime と Fake Model で検査）。
 
+- **公開中の Beta（GitHub Pages）**: Pages 用の成果物は Developer Gate を開いてビルドしているので、
+  https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/ の設定画面から Lab を開けます（PR #2 の merge 後）。
+- **ローカル**:
+
 ```bash
 VITE_AI_FEATURES=on npm run dev
 # または
@@ -80,8 +88,33 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 6. **RESULTS** で指標を確認し、応答ごとに 5 項目を評価、JSON / CSV（blind）で export
 
 - WebGPU は secure context（`https://` または `localhost`）でだけ使えます。スマートフォンで試す場合は HTTPS で配信してください。
-- GitHub Pages（本番の Beta）は Gate が閉じたビルドなので、Lab は公開されません。
+- ページ表示・設定画面の表示・Lab の表示・モデルの選択だけでは、モデルを取得しません（`e2e/gate-open/` で外部通信を遮断して検査）。
+  モデルを選ぶと WebLLM のライブラリ（同じ配信元の chunk）だけを読み込み、キャッシュの有無を確認します。
 - 同じ候補の 2 回目以降の読み込みは `cache-cold`（ページ再読み込み後）/ `cache-warm`（同じページで再読み込み）として記録されます。
+
+### 2.1 ビルドの種類と CI
+
+| ビルド | Developer Gate | 用途 | CI での検査 |
+| --- | --- | --- | --- |
+| `npm run build`（通常） | 閉（`VITE_AI_FEATURES` 未設定） | lint / test / E2E | `npm run test:e2e`: Lab の入口が無い・Lab / WebLLM を precache しない・モデル配布元へ通信しない |
+| `npm run build:pages`（GitHub Pages） | **開**（`scripts/lib/pagesBuild.mjs`） | Beta の公開 | `npm run check:base`: base path・Lab と WebLLM の chunk が別に出る・precache に入らない・モデルのファイルが無い |
+| `npm run test:e2e:gate-open` | **開**（Pages と同じ設定・base path で配信） | Pages 成果物の E2E | 入口がある・Lab は遅延読み込み・起動だけでは Lab / WebLLM / モデルを読まない・モデル選択で WebLLM だけを遅延読み込み・確認画面の表示・「ダウンロードを開始」を押さなければ取得しない・外部通信 0・通常の 01AS が動く |
+
+- base path は deploy 時に repository 名から算出します（`.github/workflows/ci-deploy.yml`）。
+  Pages 用ビルドの Gate の値と、検証用の既定 base は `scripts/lib/pagesBuild.mjs` の 1 か所にだけ書きます。
+- CI の gate-open E2E は headless で WebGPU の adapter が無いため、確認画面の検査では adapter を偽装します
+  （`requestDevice` は失敗させ、モデルは取得しません）。
+
+### 2.2 KNOWN LIMITATION: WebLLM のキャッシュ
+
+- WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`）は、01AS 専用名へ変更できません。
+  同じ origin（`chihirohashimotoac-coder.github.io`）の別のアプリが WebLLM を使うと、`webllm/*` を共有する可能性があります。
+- 既知の制約として許容しています（`docs/APPROVALS.md` AI-3）。正式採用を妨げる問題としては扱いません。
+- Benchmark の段階では次を守ります。
+  - **WebLLM model cache ≠ 01AS user data**（モデルを削除しても設定・TRAINING 履歴・SIMULATION 設定・Benchmark の結果・人手評価は消えない）
+  - **WebLLM の全キャッシュを一括削除する処理を 01AS 側に実装しない**。「モデルを削除」は選んだ候補のモデルだけを
+    `deleteModelAllInfoInCache(modelId)` で消す。`caches.delete()` などの一括削除は `src/ai/architecture.test.ts` が禁止する
+- 詳細は `docs/AI_ARCHITECTURE.md` 11.4 節。
 
 ---
 
