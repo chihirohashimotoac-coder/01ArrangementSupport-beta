@@ -912,6 +912,9 @@ MY ROUTE は英語のまま残し、`reviewGlossary.ts` の短い説明を折り
 既存の設定・履歴とは完全に独立している。保存するのは
 開始点数 / First9 PPR / Average PPR / ブレ方向 / 最大ブレ。
 
+> **Beta 版**: 実際の保存キーは `01as-beta:` 接頭辞付き（`01as-beta:oas.simulation.v1`）。
+> Production 版のキーは読まない・書かない・消さない。詳細は `docs/BETA.md`。
+
 MY ROUTE（得意ダブル）と SETUP の主目標は既存の設定をそのまま読み、
 レビューの判定へ渡している（SIMULATION から書き換えることはない）。
 

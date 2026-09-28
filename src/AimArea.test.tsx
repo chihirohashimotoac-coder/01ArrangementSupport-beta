@@ -168,7 +168,7 @@ describe('CHECKOUT: 盤面の狙い方', () => {
 
   it('得意ダブルは「得意」と注記するだけで、基準ルートは変えない', async () => {
     window.localStorage.setItem(
-      'oas.preferences.v1',
+      '01as-beta:oas.preferences.v1',
       JSON.stringify({ version: 1, preferredDoubles: ['D20'] }),
     );
     const user = userEvent.setup();

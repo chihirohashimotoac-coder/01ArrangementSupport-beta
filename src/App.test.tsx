@@ -937,7 +937,7 @@ describe('v1.3 テーマとユーザー向け文言', () => {
       'content',
       '#edf4fb',
     );
-    expect(JSON.parse(window.localStorage.getItem('oas.preferences.v1') ?? '{}').theme).toBe(
+    expect(JSON.parse(window.localStorage.getItem('01as-beta:oas.preferences.v1') ?? '{}').theme).toBe(
       'light',
     );
 
@@ -948,7 +948,7 @@ describe('v1.3 テーマとユーザー向け文言', () => {
 
   it('保存済み Light テーマを初期表示で復元する', () => {
     window.localStorage.setItem(
-      'oas.preferences.v1',
+      '01as-beta:oas.preferences.v1',
       JSON.stringify({ version: 1, preferredDoubles: [], setupMainTarget: 'T20', theme: 'light' }),
     );
     render(<App />);
@@ -1019,7 +1019,7 @@ describe('v1.2 レビュー指摘の回帰テスト', () => {
 
   it('MY ROUTE のチップからでも、盤面まで移動する', async () => {
     window.localStorage.setItem(
-      'oas.preferences.v1',
+      '01as-beta:oas.preferences.v1',
       JSON.stringify({ version: 1, preferredDoubles: ['D16'] }),
     );
     const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
@@ -1228,7 +1228,7 @@ describe('v1.3 TRAINING 教育設計', () => {
 
   it('読み取れない古い履歴は正答率へ混ぜず、件数だけ知らせる', async () => {
     window.localStorage.setItem(
-      'oas.training.v1',
+      '01as-beta:oas.training.v1',
       JSON.stringify({
         version: 1,
         records: [
@@ -1311,7 +1311,7 @@ describe('v1.3.1 CHECKOUT の TIP', () => {
     // 表示専用。ルートも出さないし、設定も書き換えない。
     expect(screen.queryByTestId('standard-route')).toBeNull();
     expect(screen.queryByTestId('other-routes')).toBeNull();
-    expect(window.localStorage.getItem('oas.preferences.v1')).toBeNull();
+    expect(window.localStorage.getItem('01as-beta:oas.preferences.v1')).toBeNull();
   });
 });
 
@@ -1451,7 +1451,7 @@ describe('v1.3.1 CHECKOUT 不能時の NEXT VISIT', () => {
 describe('v1.3.3 選んだルートを実戦入力へ引き継ぐ', () => {
   function setPreferredDoubles(doubles: readonly string[]) {
     window.localStorage.setItem(
-      'oas.preferences.v1',
+      '01as-beta:oas.preferences.v1',
       JSON.stringify({
         version: 1,
         preferredDoubles: doubles,

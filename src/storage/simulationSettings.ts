@@ -1,11 +1,12 @@
 /**
  * SIMULATION のプレイヤー設定の永続化。
  *
- * 既存の `oas.preferences.v1` とは **別のキー**に保存する。
+ * 既存の設定キー（`PREFERENCES_KEY`）とは **別のキー**に保存する。
  * SIMULATION を追加したことで既存の設定・履歴が壊れないようにするため、
  * 既存スキーマへは 1 項目も足さない。
  */
 import { readJson, writeJson } from './localJson';
+import { namespacedKey } from './namespace';
 import {
   MAX_MISS_LEVELS,
   MISS_DIRECTIONS,
@@ -19,7 +20,7 @@ import {
   MIN_START_SCORE,
 } from '../engine/simulation/game';
 
-export const SIMULATION_SETTINGS_KEY = 'oas.simulation.v1';
+export const SIMULATION_SETTINGS_KEY = namespacedKey('oas.simulation.v1');
 
 export interface SimulationPreferences {
   readonly version: 1;

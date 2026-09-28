@@ -2,6 +2,9 @@
 
 まず `AGENTS.md` を読んでください。ここには Claude Code に固有の事項だけを書きます。
 
+> このリポジトリは **Beta 版**です。Production（`01ArrangementSupport`）は READ ONLY。
+> **Deterministic Engine decides. AI explains.**（`docs/AI_BOUNDARIES.md`）
+
 ---
 
 ## 1. 担当範囲
@@ -44,6 +47,10 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `src/engine/simulation/**` | SIMULATION 専用。設計は `docs/SIMULATION_DESIGN.md`。既存エンジンへは手を入れず、`suggestFor` などを呼ぶだけにする |
 | `SIGMA_ANCHORS`（`accuracy.ts`） | 戦術データではない。`npm run audit:simulation -- --solve` で逆算し直して差し替える |
 | `data/source/*.xlsx` | 一次資料。**変更禁止** |
+| `src/ai/**` | Beta の AI 説明層。engine の結果を読むだけ。**判断・ランキング・再探索を書かない** |
+| `src/ai/models/**` | Model Management。engine / data / storage に依存しない。**実モデルの追加は Human Approval Required** |
+| `src/storage/**` | キーは必ず `namespacedKey()`（`01as-beta:`）で作る。Production の `oas.*` に触れない |
+| `src/config/releaseChannel.ts` | Beta の識別子（PWA 名・保存名前空間・cacheId）。変えると Production と衝突し得る |
 
 ## 3-1. 承認済みの戦術方針
 
@@ -53,6 +60,22 @@ SEGMENT_DIFFICULTY・SETUP の重み・GRADE_THRESHOLDS など）が記録され
 - 承認済み = **人間が選んだ暫定の方針**であって、「絶対に正しい値」ではありません。
 - ドキュメントや説明文で、これらを「数学的・統計的に正しい」と表現しないこと。
 - v1 から変更したい場合は、値を変えずに提案だけを書き、承認を得てください。
+
+## 3-2. AI 説明層（Beta）
+
+- `src/ai/**` は `src/engine/**` の**結果（型）を読むだけ**。`suggestFor` / `rank*` / `evaluate*` /
+  `enumerate*` / `select*` を `src/ai/**` から呼ばない（`src/ai/architecture.test.ts` が検査する）。
+- engine / domain / data / storage から `src/ai/**` を import しない（同上）。
+- AI の出力で engine の state・判定・戦術データを変えない。Evidence は凍結した複製で渡す。
+- Provider が失敗・タイムアウト・不正応答・未対応でも、決定論的な fallback
+  （`templateProvider`）で必ず説明を返し、アプリ本体を止めない。
+- Evidence が足りないときは補完・推測せず `insufficient-evidence` として返す。
+- AI を使えるかどうかは「Developer Gate（`VITE_AI_FEATURES`、開発者向け kill switch）＋導入済みで選択中の
+  モデル（`activeModelId`）」で決まる。利用者向けの AI ON / OFF 設定として書かない。
+- モデル未導入・未選択なら従来の 01AS として動く。選択中のモデルを削除したら `activeModelId` を null に戻す。
+- モデルのファイル（`01as-beta-ai-model:`）と利用者データ（`01as-beta:oas.*`）を混ぜない。
+- モデル・推論ライブラリ（WebLLM / transformers.js / llama.cpp 等）・外部 AI API・API key・
+  backend は、人間の承認なしに追加しない。
 
 ## 4. データに矛盾を見つけたとき
 

@@ -2,9 +2,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import {
+  APP_DESCRIPTION,
+  APP_NAME,
+  APP_SHORT_NAME,
+  CACHE_ID,
+} from './src/config/releaseChannel';
 
 /**
- * GitHub Pages ではリポジトリ配下パス（例: /01ArrangementSupport/）で公開されるため、
+ * GitHub Pages ではリポジトリ配下パス（例: /01ArrangementSupport-beta/）で公開されるため、
  * base をビルド時の環境変数から差し替えられるようにしている。
  */
 const base = process.env.VITE_BASE_PATH ?? '/';
@@ -29,10 +35,10 @@ export default defineConfig({
       ],
       manifest: {
         id: base,
-        name: '01 Arrangement Support',
-        short_name: '01アレンジ',
-        description:
-          'スティールダーツ01のチェックアウト／セットアップの「判断規則」を学ぶためのアプリ。完全オフラインで動作します。',
+        // Beta 版として Production と見分けられる名前にする（src/config/releaseChannel.ts）。
+        name: APP_NAME,
+        short_name: APP_SHORT_NAME,
+        description: APP_DESCRIPTION,
         lang: 'ja',
         dir: 'ltr',
         start_url: base,
@@ -60,6 +66,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        /*
+         * Cache Storage の名前を Production と分ける。Production と Beta は同じ origin を
+         * 共有するので、既定名のままだとスコープ文字列だけが区別の手がかりになる。
+         */
+        cacheId: CACHE_ID,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         cleanupOutdatedCaches: true,
         /*

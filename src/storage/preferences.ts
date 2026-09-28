@@ -7,8 +7,9 @@
 import { DOUBLE_DARTS, INNER_BULL_DART, findDart } from '../domain/dart';
 import { DEFAULT_SETUP_MAIN_TARGET } from '../data/rankingRules';
 import { readJson, writeJson } from './localJson';
+import { namespacedKey } from './namespace';
 
-export const PREFERENCES_KEY = 'oas.preferences.v1';
+export const PREFERENCES_KEY = namespacedKey('oas.preferences.v1');
 
 export type Theme = 'light' | 'dark';
 
