@@ -14,6 +14,11 @@ import './SettingsPage.css';
 export interface SettingsPageProps {
   readonly theme: Theme;
   readonly onThemeChange: (theme: Theme) => void;
+  /**
+   * 開発者向けの AI MODEL LAB を開く。Developer Gate が開いたビルドでだけ渡される
+   * （利用者向けの設定ではない。渡されなければ何も表示しない）。
+   */
+  readonly onOpenAiLab?: () => void;
 }
 
 const THEMES: ReadonlyArray<{ id: Theme; label: string; description: string }> = [
@@ -21,7 +26,7 @@ const THEMES: ReadonlyArray<{ id: Theme; label: string; description: string }> =
   { id: 'dark', label: 'Dark', description: '暗所で見やすい表示' },
 ];
 
-export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
+export function SettingsPage({ theme, onThemeChange, onOpenAiLab }: SettingsPageProps) {
   const { preferences, setPreferredDoubles } = usePreferences();
   const selected = preferences.preferredDoubles;
 
@@ -151,6 +156,18 @@ export function SettingsPage({ theme, onThemeChange }: SettingsPageProps) {
           MY ROUTE では、設定した得意ダブルを考慮した候補を表示します。
         </p>
       </section>
+
+      {onOpenAiLab && (
+        <section className="settings__section" data-testid="developer-section">
+          <h2>DEVELOPER</h2>
+          <p className="settings__note">
+            開発者向けのビルド（Developer Gate）でだけ表示されます。ローカル AI モデルの比較評価に使います。
+          </p>
+          <button type="button" className="settings__developer" data-testid="open-ai-lab" onClick={onOpenAiLab}>
+            AI MODEL LAB を開く
+          </button>
+        </section>
+      )}
     </div>
   );
 }

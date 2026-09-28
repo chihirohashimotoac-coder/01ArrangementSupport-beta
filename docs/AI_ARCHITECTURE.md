@@ -58,6 +58,8 @@ Active Local Model（activeModelId のモデル）       … 利用者が導入�
 | `src/ai/models/state.ts` | Model State（導入状態・activeModelId の純粋な状態遷移） |
 | `src/ai/models/runtime.ts` | Model Runtime の境界・Provider の解決・モデル削除 |
 | `src/ai/index.ts` | 公開 API。画面・将来の Coach はここからだけ import する |
+| `src/ai/benchmark/**` | 開発者向け Benchmark（候補・prompt・自動検証・計測・export・端末確認・Runtime）。11 節 |
+| `src/lab/**` | 開発者向け AI MODEL LAB（Developer Gate 配下）とデータセットの定義。11 節 |
 
 巨大な `AiManager` クラスは作らず、純粋関数と小さな interface に分けています。
 
@@ -157,7 +159,7 @@ interface AiTextOutput {
 - 2〜350 × 残り 1〜3 本（1,047 場面）のすべてで、Evidence が充足し、
   出力に Evidence に無い的・推奨度・数値が含まれないことをテストで確認
 - AI 機能が無くても、CHECKOUT / SETUP / TRAINING / SIMULATION / GAME REVIEW は
-  従来どおり動作します（そもそもアプリ本体は現時点で AI 層を import していません）
+  従来どおり動作します（アプリ本体の画面は AI 層を使っていません。例外は開発者向けの Lab と、その入口の Gate 判定だけ。11 節）
 
 ---
 
@@ -191,12 +193,14 @@ AI 機能を利用できる
 | --- | --- |
 | 位置づけ | **開発者向けの experimental kill switch**。利用者向けの AI ON / OFF 設定ではない |
 | 変数 | `VITE_AI_FEATURES`（ビルド時） |
-| 既定 | 閉（未設定） |
+| 既定 | 閉（未設定）。通常の CI（lint / test / build / E2E）・ローカルのビルドも閉 |
 | 開く | `VITE_AI_FEATURES=on` のときだけ |
+| Beta の GitHub Pages 成果物 | **開**（`npm run build:pages`。`scripts/lib/pagesBuild.mjs` が base path と同時に設定。`docs/APPROVALS.md` AI-2） |
 
 実験中の不具合があったときに、ビルド単位で AI 層を止めるためのものです。閉じていれば、
 モデルが選択されていても決定論的な説明を返します（`developer-gate-closed`）。
-現時点では実モデルもアプリ本体からの呼び出しも無いため、どちらでも画面は Production と同じです。
+一般ユーザー向けの画面は AI 層を呼ばないため、どちらでも画面は Production と同じです。開いたビルドでだけ、設定画面に
+開発者向けの AI MODEL LAB への入口が出ます（11 節）。
 
 ---
 
@@ -268,6 +272,9 @@ AI model cache（01as-beta-ai-model:<id>） ≠ user data（localStorage の 01a
 | 設定・学習履歴・SIMULATION 設定 | `01as-beta:oas.*` | **消えない**（削除の経路に現れない） |
 | アプリ本体のオフライン用キャッシュ | Workbox `01as-beta-precache-…` | 消えない |
 
+- 開発者向けの AI MODEL LAB が使う WebLLM は、モデルを WebLLM 側で名前が固定された Cache Storage
+  （`webllm/model`・`webllm/config`・`webllm/wasm`）に置きます。上の `01as-beta-ai-model:<id>` とは名前が違います
+  （11.4 節。利用者向けの Model Management へ組み込むときに扱いを決める）。
 - 選択中のモデルを削除したら `activeModelId` は null に戻り、**従来の 01AS として動作**します。
   別のモデルへ勝手に切り替えません。
 - Runtime の削除が失敗したら状態を変えません（ファイルが残っている可能性があるため）。
@@ -290,9 +297,114 @@ Runtime から `AiProvider` を作ります。Gate が閉・モデル未選択�
 
 ## 10. 今後（このリポジトリではまだ行わない）
 
-- OSS モデルの候補比較と Browser Local 推論の実現性調査（`docs/AI_EVALUATION.md` の基準で比較）
-- Model Runtime の実装（モデルの取得・キャッシュ・WebGPU 判定・推論）と Model Catalog へのモデル追加
+- OSS モデルの実測と採用判断（比較の基盤は 11 節の Benchmark Lab。採用は人間が判断する）
+- 利用者向けの Model Runtime（`LocalModelRuntime` の実装）と Model Catalog へのモデル追加
 - モデル状態の保存（`01as-beta:ai.models.v1`）
 - 画面への組み込み（モデルの一覧・容量表示・ダウンロード・選択・削除、説明ボタン・GAME REVIEW の要約・AI Coach）
 
 いずれも人間の承認を経てから別 PR で行います（`docs/AI_BOUNDARIES.md` 9 節）。
+
+---
+
+## 11. AI Model Benchmark Lab（開発者向け）
+
+ローカル AI モデルを**公平に採用判断するための**内部 Lab です。一般ユーザー向けの画面ではなく、
+モデルの採用・AI Coach はここでは行いません。詳細（候補・Runtime の比較・データセット・指標・手順）は
+`docs/AI_MODEL_BENCHMARK.md`。
+
+### 11.1 構造
+
+```text
+src/lab/benchmarkDataset.ts          … engine を呼んで Evidence を作る（suggestFor / 自動プレイ / buildGameReview）
+    ↓ Evidence（凍結）
+src/ai/benchmark/dataset.ts          … タグ付け・指紋（戦術判断をしない）
+    ↓ BenchmarkCase
+src/ai/benchmark/prompt.ts           … 版管理した prompt（01as-explain-ja@1）
+    ↓ messages
+BenchmarkRuntime（template / mock / WebLLM）… 生成だけ
+    ↓ 文字列 + 計測値
+src/ai/benchmark/checks.ts           … contradiction / unsupported claim / 形 / thinking / 体裁
+    ↓
+src/ai/benchmark/metrics.ts・export.ts … 集計・JSON / CSV
+    ↓
+src/lab/AiModelLabPage.tsx           … 画面（Developer Gate 配下）・src/lab/labStorage.ts（保存）
+```
+
+- `src/ai/benchmark/**` も engine の関数を呼びません。engine を呼ぶのはデータセットの定義（`src/lab/`）だけです。
+- Benchmark の結果（文字列）は engine・アプリの説明へ戻りません。`explain.ts` の実行時の経路とは独立しています
+  （検証関数 `findUnsupportedClaims` / `checkOutputShape` は同じものを使う）。
+- `BenchmarkRuntime` は計測用の interface で、利用者向けの `LocalModelRuntime`（8 節）とは別です。
+  実測で採用が決まった Runtime を、`LocalModelRuntime` の実装として組み込むのは別 PR です。
+
+### 11.2 入口（Developer Gate）
+
+- `VITE_AI_FEATURES=on` のビルドでだけ、設定画面に **DEVELOPER → AI MODEL LAB** が出ます。
+  Beta の GitHub Pages 成果物は Gate を開いてビルドするので、公開中の Beta でも Lab を使えます（7.1 節）。
+  通常の CI は閉じたビルドで「入口が無い」ことを検査し、さらに Pages と同じ設定の成果物を base path で配信して
+  「入口がある・Lab と WebLLM は遅延読み込み・precache しない・明示操作なしにモデルを取得しない」ことを検査します
+  （`e2e/gate-open/`）。
+- Lab は `React.lazy` の動的 import で、開いたときに初めて読み込みます。
+- Lab と WebLLM の chunk は Service Worker の precache に入れません（`vite.config.ts` の `globIgnores`）。
+- AI 層（`src/ai/**`）を使うのは `src/lab/**` と、App.tsx の Gate 判定（`./ai/developerGate`）だけです。
+
+### 11.3 推論ライブラリ（WebLLM）
+
+- `@mlc-ai/web-llm` を**版固定**（0.2.85）で追加しました。Benchmark の primary runtime 候補の検証用です。
+- `src/ai/benchmark/runtimes/webllmRuntime.ts` から**動的 import でだけ**読みます（静的 import は architecture test で禁止）。
+- モデルの取得は `load({ allowDownload: true })`、つまり利用者が確認画面で「ダウンロードを開始」を押したときだけです。
+  Benchmark の実行は `allowDownload: false` で、キャッシュに無ければ失敗します。
+- ほかの推論ライブラリ（Transformers.js・LiteRT-LM 等）は追加していません（`docs/AI_MODEL_BENCHMARK.md` 4 節）。
+- 承認の範囲: Benchmark Lab で候補モデルを実測する目的に限る（`docs/APPROVALS.md` AI-1）。
+  一般ユーザー向け AI 機能・Production・将来の正式 Runtime への採用ではありません。
+
+### 11.3.1 explain.ts を通さない唯一の例外
+
+Benchmark は候補モデルの**生の応答**を測るため、`src/ai/benchmark/runner.ts` が `explain.ts` を通さずに
+Benchmark Runtime を呼びます（explain.ts を通すと、不合格の応答が fallback に置き換わり測定になりません）。
+
+- runner はケースごとのタイムアウトと、explain.ts と同じ検証関数（`checkOutputShape`・`findUnsupportedClaims`）を持つ
+- 結果は計測値として Lab に表示するだけで、アプリの説明・engine の state・戦術データへは戻らない
+- `runtime.generate` を呼べるのは runner だけ（`src/ai/architecture.test.ts`）。Lab の画面は runner を呼ぶ
+
+### 11.4 保存とキャッシュ
+
+```text
+AI model cache（WebLLM: Cache Storage の webllm/*）
+  ≠
+01AS user data（localStorage の 01as-beta:oas.*）
+  ≠
+Benchmark の結果・人手評価（localStorage の 01as-beta:ai.benchmark.*）
+```
+
+| 保存するもの | 場所 | モデル削除で消えるか |
+| --- | --- | --- |
+| モデル（重み・設定・model library） | Cache Storage `webllm/model`・`webllm/config`・`webllm/wasm`（WebLLM が名前を固定） | そのモデルの項目だけ消える（`deleteModelAllInfoInCache`） |
+| Benchmark の結果（直近 5 run） | `01as-beta:ai.benchmark.runs.v1` | **消えない** |
+| 人手評価 | `01as-beta:ai.benchmark.ratings.v1` | **消えない** |
+| 設定・TRAINING 履歴・SIMULATION 設定 | `01as-beta:oas.*` | **消えない** |
+
+- 削除で消えないことは `src/lab/AiModelLabPage.test.tsx` と `src/ai/benchmark/benchmark.test.ts` で確認しています。
+#### KNOWN LIMITATION: WebLLM のキャッシュ名は 01AS 専用名にできない
+
+- WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`）は WebLLM 側で固定で、
+  8.4 節の `01as-beta-ai-model:<id>` のような 01AS 専用名へ変更できません。
+- GitHub Pages では、同じ origin（`chihirohashimotoac-coder.github.io`）の別のアプリが WebLLM を使うと、
+  `webllm/*` を共有する可能性があります（Production の 01AS は WebLLM を使っていません）。
+- これは既知の制約として許容しています（`docs/APPROVALS.md` AI-3）。正式採用を妨げる問題としては扱いません。
+
+そのため Benchmark の段階では次を守ります。
+
+| 規則 | 実装・検査 |
+| --- | --- |
+| WebLLM model cache ≠ 01AS user data | モデルは Cache Storage の `webllm/*`、利用者データ・評価は localStorage の `01as-beta:*`。削除で利用者データ・評価が残ることをテストで確認 |
+| **WebLLM の全キャッシュを一括削除しない** | 01AS 側に一括削除の処理を持たない。`caches.delete()`・`Cache.delete()`・`indexedDB.deleteDatabase()`・OPFS の削除・Clear-Site-Data・WebLLM の部分削除 API を architecture test で禁止 |
+| 削除は対象モデル単位 | `deleteModelAllInfoInCache(modelId)` を、選んだ候補のモデル ID で 1 か所から呼ぶだけ（architecture test）。ほかのモデルのキャッシュが残ることを unit test で確認 |
+| サイズの計測は読むだけ | `webllm/*` を `open` / `keys` / `match` で読み、`content-length` を合計する（書き換え・削除をしない） |
+
+### 11.5 端末確認
+
+`navigator.gpu`・`requestAdapter()`（features・limits・adapter.info）・`navigator.userAgent(Data)`・
+`navigator.deviceMemory`・`navigator.storage.estimate()` の、API で取得できる値だけを記録します。
+GPU の VRAM 量など取得できない値は推測しません。判定は `UNSUPPORTED`（WebGPU / adapter / 必須 feature が無い）・
+`MAY_BE_TOO_LARGE`（推定 VRAM が報告された端末メモリを超える・モバイルで低リソース向けでない・保存容量が足りない恐れ）・
+`CAN_TRY`（試してよい。実行できる保証ではない）・`UNKNOWN`（未確認）です。

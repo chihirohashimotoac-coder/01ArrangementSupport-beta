@@ -207,3 +207,13 @@
 .settings__note-list strong {
   color: var(--text-secondary);
 }
+
+.settings__developer {
+  align-self: flex-start;
+  padding: 0.45rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-strong);
+  background: var(--chip);
+  color: inherit;
+  cursor: pointer;
+}

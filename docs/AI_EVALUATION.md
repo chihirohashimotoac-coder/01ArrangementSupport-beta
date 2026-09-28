@@ -6,7 +6,9 @@
 
 - 構造は `docs/AI_ARCHITECTURE.md`、許される役割は `docs/AI_BOUNDARIES.md`。
 - このドキュメントの**合格ラインはすべて提案値**です。採用判断の前に人間の承認を得て確定します。
-- 現時点では評価対象の実モデルはありません。決定論的な `templateProvider` が比較の基準線（baseline）です。
+- 決定論的な `templateProvider` が比較の基準線（baseline）です。
+- この基準で候補を比べる仕組み（AI Model Benchmark Lab）は実装済みです（6 節・`docs/AI_MODEL_BENCHMARK.md`）。
+  **実モデルの実測結果はまだありません**（採用も未定）。
 
 ---
 
@@ -26,7 +28,7 @@ engine から機械的に作ります。人手で答えを書きません（答�
 | セット | 作り方 | 件数の目安 |
 | --- | --- | --- |
 | D-ALL | `buildDecisionEvidence(suggestFor(left, darts))`、left = 2〜350、darts = 1〜3 | 1,047 |
-| D-CORE | D-ALL から CHECKOUT / SETUP / NEXT_VISIT / UNAVAILABLE・Bogey・TON の罠を層別抽出 | 100〜200 |
+| D-CORE | D-ALL から CHECKOUT / SETUP / NEXT_VISIT / UNAVAILABLE・Bogey・TON の罠を層別抽出 | 100〜200（**実装: 01AS Core v1・100 件**。6 節） |
 | D-REF | 添付資料由来の回帰ケース（122 / 302〜309 / 231〜235 / 271〜275） | 既存テストと同じ |
 | G-SET | SIMULATION を固定 seed で自動プレイした `buildGameReviewEvidence` | 50 ゲーム程度 |
 | T-SET | 合成した学習履歴からの `buildTrainingEvidence`（記録 0 件を含む） | 20 程度 |
@@ -118,3 +120,49 @@ Evidence は `serializeEvidence()` で固定した文字列として保存し、
 | 指標 1〜13 の値 | 上表 |
 
 モデルを差し替えても、同じ表で比較できるようにします。
+
+---
+
+## 6. AI Model Benchmark Lab での実装（PR #2）
+
+この文書の基準を、候補モデルで再現可能に測るための実装です。手順・候補・データセットの内訳は
+`docs/AI_MODEL_BENCHMARK.md`。
+
+### 6.1 01AS の優先順
+
+一般的な LLM benchmark より、次の順で重視します（Lab の表示・集計もこの順）。
+
+1. **Engine contradiction rate**（2 節の指標 3）
+2. **Unsupported claim rate**（指標 2。1 の Groundedness は応答単位の件数から読む）
+3. **Validation failure rate**（形・根拠・矛盾のどれかで不合格。エラー・タイムアウトを含む）
+4. **Japanese explanation quality**（指標 5。人手評価 5 項目 ＋ 自動の目安）
+5. **Latency**（指標 6。TTFT・本文の TTFT・生成時間・tok/s、読み込みは download / cache-cold / cache-warm を区別）
+
+### 6.2 指標との対応
+
+| 2 節の指標 | Benchmark での扱い |
+| --- | --- |
+| 1 Groundedness / 2 Hallucination rate | `findUnsupportedClaims`（実行時と同じ関数）。応答数と件数の両方を集計 |
+| 3 Engine contradiction rate | `findContradictions`（既知のパターンの自動検出）＋ export した応答の人手確認 |
+| 4 Explanation correctness | 人手評価（export の CSV で reason code ごとに確認する運用。自動判定はしない） |
+| 5 Japanese naturalness | 人手評価 5 項目（日本語の自然さ・分かりやすさ・簡潔さ・学習上の価値・ダーツプレイヤーとしての自然さ）。blind CSV で Provider を伏せる |
+| 6 Latency | TTFT・生成時間・tok/s（p50 / p95）。読み込み時間は種類つき |
+| 7 Memory usage | Runtime の設定値（推定 VRAM）だけ。実機のピークは DevTools 等で別途（API で取得できないため推測しない） |
+| 8 Initial download size | 取得後に Cache Storage から計測。取得前は確認画面に表示（未計測なら「不明」） |
+| 10〜12 互換性・WebGPU 依存 | 端末確認（WebGPU・adapter・features・limits・ブラウザ情報）と UNSUPPORTED / MAY_BE_TOO_LARGE の判定 |
+| 13 Fallback behavior | 対象外（実行時の `explain.ts` のテストで確認済み）。Benchmark は生の応答を測る |
+
+### 6.3 再現性
+
+- データセットは engine から決定論的に作り、Evidence 全体の指紋を固定（`d8bcc5db4101150e`）
+- prompt は版つき（`01as-explain-ja@1`）で、ケースごとに `promptHash` を記録
+- 生成は temperature 0・seed 固定・thinking OFF が既定。各ケースの前に会話を reset
+- run には dataset の版と指紋・prompt の版・生成設定・端末情報・読み込みの種類を記録
+- engine snapshot（`scripts/maintenance-snapshot.ts`）: states=8376・
+  sha256=602e43693d5df9fa3fc3429759bb0147a507fa1694f1091775fb1a4044f83877（このPRで不変）
+
+### 6.4 CI での扱い
+
+CI はモデルを取得しません。Mock Runtime（Fake Model・偽の時計）と決定論的な baseline で、
+読み込み → 生成 → 検証 → 計測 → export の流れと、「明示操作なしに取得しない」「モデル削除で利用者データ・
+評価を消さない」ことを検査します。実モデルの Benchmark は手動実行です。

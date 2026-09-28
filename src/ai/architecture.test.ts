@@ -55,6 +55,7 @@ function importsOf(source: string): ImportStatement[] {
 }
 
 const AI_DIR = join(SRC, 'ai');
+const LAB_DIR = join(SRC, 'lab');
 const aiSources = sourceFiles(AI_DIR).filter((path) => !isTest(path));
 
 describe('依存の向き', () => {
@@ -133,16 +134,47 @@ describe('依存の向き', () => {
     expect(violations).toEqual([]);
   });
 
-  it('アプリ本体（src/ai 以外）はまだ AI 層を使っていない（モデル未導入・未公開）', () => {
-    const users = sourceFiles(SRC)
-      .filter((file) => !file.startsWith(AI_DIR) && !isTest(file))
-      .filter((file) =>
-        importsOf(readFileSync(file, 'utf8')).some((statement) =>
-          /(^|\/)ai(\/|$)/.test(statement.from),
-        ),
-      )
-      .map((file) => relative(ROOT, file));
-    expect(users).toEqual([]);
+  it('AI 層を使うのは Developer Gate 配下の Lab（src/lab）と、その入口の Gate 判定（App.tsx）だけ', () => {
+    const violations: string[] = [];
+    for (const file of sourceFiles(SRC).filter((path) => !path.startsWith(AI_DIR) && !isTest(path))) {
+      const inLab = file.startsWith(LAB_DIR);
+      for (const statement of importsOf(readFileSync(file, 'utf8'))) {
+        if (!/(^|\/)ai(\/|$)/.test(statement.from)) continue;
+        if (inLab) continue;
+        // 入口（App.tsx）は Developer Gate の判定だけを読む。
+        if (relative(SRC, file) === 'App.tsx' && statement.from === './ai/developerGate') continue;
+        violations.push(`${relative(ROOT, file)} → ${statement.from}`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('Lab（src/lab）は App.tsx から遅延読み込み（動的 import）でだけ使われる', () => {
+    const violations: string[] = [];
+    for (const file of sourceFiles(SRC).filter((path) => !path.startsWith(LAB_DIR) && !isTest(path))) {
+      const source = readFileSync(file, 'utf8');
+      for (const statement of importsOf(source)) {
+        if (/(^|\/)lab(\/|$)/.test(statement.from)) violations.push(`${relative(ROOT, file)} → ${statement.from}（静的 import）`);
+      }
+      for (const match of source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+        if (/(^|\/)lab(\/|$)/.test(match[1]) && relative(SRC, file) !== 'App.tsx') {
+          violations.push(`${relative(ROOT, file)} → ${match[1]}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('src/lab は engine / domain を読んでよいが、書き換える経路（data 層の値・storage の直接操作）を持たない', () => {
+    const violations: string[] = [];
+    for (const file of sourceFiles(LAB_DIR).filter((path) => !isTest(path))) {
+      const source = readFileSync(file, 'utf8');
+      for (const statement of importsOf(source)) {
+        if (/(^|\/)data\//.test(statement.from) && !statement.typeOnly) violations.push(`${relative(ROOT, file)} → ${statement.from}`);
+      }
+      if (/\blocalStorage\s*\.\s*\w+\s*\(/.test(source)) violations.push(`${relative(ROOT, file)}: localStorage を直接使っている`);
+    }
+    expect(violations).toEqual([]);
   });
 });
 
@@ -163,22 +195,78 @@ describe('通信・秘密情報・AI 依存を持たない', () => {
     expect(violations).toEqual([]);
   });
 
-  it('AI モデル・推論ライブラリ・AI API SDK を dependency に持たない', () => {
+  it('AI の dependency は人間が承認した推論ライブラリ（WebLLM）だけで、版を固定している', () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
-    const names = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})];
+    const all = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
     const aiPackage =
-      /(web-llm|mlc-ai|transformers|xenova|huggingface|onnxruntime|llama|ggml|wllama|tensorflow|tfjs|openai|anthropic|google\/generative-ai|google\/genai|@google-ai|langchain|ollama|mistral|cohere|webgpu)/i;
-    expect(names.filter((name) => aiPackage.test(name))).toEqual([]);
+      /(web-llm|mlc-ai|transformers|xenova|huggingface|onnxruntime|llama|ggml|wllama|tensorflow|tfjs|openai|anthropic|google\/generative-ai|google\/genai|@google-ai|langchain|ollama|mistral|cohere|webgpu|mediapipe|litert)/i;
+    const found = Object.keys(all).filter((name) => aiPackage.test(name));
+    // PR #2（AI MODEL BENCHMARK LAB）で Benchmark 用の primary runtime 候補として追加。
+    // 追加の Runtime（Transformers.js など）は docs/AI_MODEL_BENCHMARK.md の評価と人間の承認を経てから。
+    expect(found).toEqual(['@mlc-ai/web-llm']);
+    expect(all['@mlc-ai/web-llm']).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('具体的なモデル名をアプリのコードへ書かない（Model Catalog のデータにだけ書く）', () => {
-    // 現時点のカタログは空なので、src 全体（テスト以外）に 1 つも現れない。
+  it('WebLLM は Benchmark の Runtime（webllmRuntime.ts）から動的 import でだけ読む', () => {
+    const allowed = join(AI_DIR, 'benchmark', 'runtimes', 'webllmRuntime.ts');
+    const violations: string[] = [];
+    for (const file of sourceFiles(SRC).filter((path) => !isTest(path))) {
+      const source = readFileSync(file, 'utf8');
+      for (const statement of importsOf(source)) {
+        if (statement.from.includes('web-llm') && !statement.typeOnly) {
+          violations.push(`${relative(ROOT, file)}: 静的 import`);
+        }
+      }
+      if (file !== allowed && source.includes('@mlc-ai/web-llm')) violations.push(relative(ROOT, file));
+    }
+    expect(violations).toEqual([]);
+    expect(readFileSync(allowed, 'utf8')).toMatch(/import\('@mlc-ai\/web-llm'\)/);
+  });
+
+  it('WebLLM のキャッシュを一括削除しない（削除は対象モデル単位だけ）', () => {
+    // WebLLM のキャッシュ名（webllm/*）は固定で、同じ origin の別アプリと共有し得る（KNOWN LIMITATION）。
+    // 01AS からは Cache Storage・IndexedDB を丸ごと消さず、WebLLM のモデル単位の削除 API だけを使う。
+    const forbidden: readonly [RegExp, string][] = [
+      [/\bcaches\s*\.\s*delete\s*\(/, 'caches.delete()'],
+      [/\b(?:cache|cacheStorage|artifactCache)\s*\.\s*delete\s*\(/, 'Cache.delete()'],
+      [/\bindexedDB\s*\.\s*deleteDatabase\s*\(/, 'indexedDB.deleteDatabase()'],
+      [/\bgetDirectory\s*\(\s*\)[\s\S]{0,80}\bremove(?:Entry)?\s*\(/, 'OPFS の削除'],
+      [/\b(?:deleteModelInCache|deleteChatConfigInCache|deleteModelWasmInCache)\b/, 'WebLLM の部分削除 API（deleteModelAllInfoInCache に揃える）'],
+      [/\bclearSiteData\b|Clear-Site-Data/i, 'Clear-Site-Data'],
+    ];
+    const violations: string[] = [];
+    for (const file of [...aiSources, ...sourceFiles(LAB_DIR).filter((path) => !isTest(path))]) {
+      const source = readFileSync(file, 'utf8');
+      for (const [pattern, label] of forbidden) {
+        if (pattern.test(source)) violations.push(`${relative(ROOT, file)}: ${label}`);
+      }
+    }
+    expect(violations).toEqual([]);
+    // WebLLM の削除は deleteModelAllInfoInCache(対象モデルの ID) の 1 か所だけ。
+    const runtime = readFileSync(join(AI_DIR, 'benchmark', 'runtimes', 'webllmRuntime.ts'), 'utf8');
+    expect([...runtime.matchAll(/\.deleteModelAllInfoInCache\(([^,)]+)/g)].map((match) => match[1].trim())).toEqual([
+      'modelId',
+    ]);
+  });
+
+  it('モデルを直接呼ぶ（runtime.generate）のは Benchmark の runner だけ（explain.ts を通さない唯一の例外）', () => {
+    const allowed = new Set([join(AI_DIR, 'benchmark', 'runner.ts')]);
+    const violations = sourceFiles(SRC)
+      .filter((file) => !isTest(file) && !allowed.has(file))
+      .filter((file) => /\.generate\s*\(/.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(ROOT, file));
+    expect(violations).toEqual([]);
+  });
+
+  it('具体的なモデル名をアプリのコードへ書かない（候補・カタログのデータにだけ書く）', () => {
+    // 利用者向けの Model Catalog は空のまま。モデル名は Benchmark の候補データにだけ現れる。
+    const allowed = new Set([join(AI_DIR, 'benchmark', 'candidates.ts')]);
     const family = /\b(qwen|llama|gemma|phi-?\d|mistral|deepseek|smollm|tinyllama)/i;
     const violations = sourceFiles(SRC)
-      .filter((file) => !isTest(file))
+      .filter((file) => !isTest(file) && !allowed.has(file))
       .filter((file) => family.test(readFileSync(file, 'utf8')))
       .map((file) => relative(ROOT, file));
     expect(violations).toEqual([]);

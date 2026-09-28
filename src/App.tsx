@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { PracticePage } from './pages/PracticePage';
 import { TrainingPage } from './pages/TrainingPage';
 import { SimulationPage } from './pages/SimulationPage';
@@ -11,6 +11,7 @@ import { DEFAULT_SETUP_MAIN_TARGET } from './data/rankingRules';
 import { usePreferences } from './hooks/usePreferences';
 import type { Theme } from './storage/preferences';
 import { CHANNEL_BADGE } from './config/releaseChannel';
+import { isAiDeveloperGateOpen } from './ai/developerGate';
 import './App.css';
 
 type Tab =
@@ -21,7 +22,15 @@ type Tab =
   | 'simulation'
   | 'settings'
   | 'history'
-  | 'references';
+  | 'references'
+  | 'ai-lab';
+
+/**
+ * 開発者向けの AI MODEL LAB。Developer Gate（`VITE_AI_FEATURES=on`）のビルドでだけ入口を出し、
+ * 開いたときに初めて読み込む（通常の画面・bundle・Service Worker の precache には入れない）。
+ */
+const AiModelLabPage = lazy(() => import('./lab/AiModelLabPage'));
+const AI_LAB_AVAILABLE = isAiDeveloperGateOpen();
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
   { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
@@ -177,10 +186,19 @@ export default function App() {
         {tab === 'training' && <TrainingPage />}
         {tab === 'simulation' && <SimulationPage />}
         {tab === 'settings' && (
-          <SettingsPage theme={preferences.theme} onThemeChange={setTheme} />
+          <SettingsPage
+            theme={preferences.theme}
+            onThemeChange={setTheme}
+            onOpenAiLab={AI_LAB_AVAILABLE ? () => setTab('ai-lab') : undefined}
+          />
         )}
         {tab === 'history' && <VersionHistoryPage onBack={backToHome} />}
         {tab === 'references' && <ReferencesPage onBack={backToHome} />}
+        {tab === 'ai-lab' && AI_LAB_AVAILABLE && (
+          <Suspense fallback={<p>読み込み中…</p>}>
+            <AiModelLabPage onBack={() => setTab('settings')} />
+          </Suspense>
+        )}
       </main>
 
       <footer className="app__footer">

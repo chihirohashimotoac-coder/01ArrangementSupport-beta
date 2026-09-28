@@ -686,6 +686,58 @@ D10 で 1 件、D11 で 2 件、D16 / D20 / D8 で 5 件（73 の T11・76 の T
 
 ---
 
+## AI 基盤の承認（戦術方針ではない）
+
+ここに記録するのは、Beta の AI 説明層・Benchmark の**実行基盤**に関する人間の承認です。
+戦術データ（基準ルート・重み・Bogey・推奨度）には触れていません。
+
+### AI-1. `@mlc-ai/web-llm` 0.2.85 の依存追加（AI MODEL BENCHMARK LAB に限定）
+
+**承認日**: 2026-09-28
+**承認者**: リポジトリオーナー（PR #2 への依頼で承認）
+**対象**: PR #2（AI MODEL BENCHMARK LAB）
+
+`@mlc-ai/web-llm` **0.2.85（版固定）**の依存追加を、**01 Arrangement Support Beta の AI MODEL BENCHMARK LAB で
+候補モデルを実測する目的に限って**承認する。
+
+この承認は次を**意味しない**。
+
+- 一般ユーザー向け AI 機能への正式採用
+- Production 版（01ArrangementSupport）への採用
+- 将来の正式 Runtime としての採用
+
+正式採用は、Benchmark の結果を見てあらためて判断する（別の承認として記録する）。
+
+- 読み込みは `src/ai/benchmark/runtimes/webllmRuntime.ts` からの動的 import だけ（`src/ai/architecture.test.ts`）
+- ほかの推論ライブラリ（Transformers.js・LiteRT-LM 等）の追加は、この承認に含まれない
+
+### AI-2. Beta の GitHub Pages 成果物に限って Developer Gate を開く
+
+**承認日**: 2026-09-28
+**承認者**: リポジトリオーナー（PR #2 への依頼で承認）
+
+01ArrangementSupport-beta は AI 実験用の Beta リポジトリなので、**GitHub Pages へ出す成果物に限って**
+`VITE_AI_FEATURES=on` でビルドし、設定画面から AI MODEL LAB を使えるようにする。
+
+- Production（01ArrangementSupport）: AI なし（このリポジトリの外。変更しない）
+- Beta の通常 CI（lint / test / build / E2E）: Gate を閉じたまま検査する
+- Beta の GitHub Pages 成果物: Gate を開く（`scripts/lib/pagesBuild.mjs`）。CI は同じ設定の成果物も E2E で検査する
+- Lab を表示・モデルを選択しただけではモデルを取得しない。確認画面で「ダウンロードを開始」を押したときだけ取得する
+- 実モデルは CI で取得・実行しない（Mock Runtime / 決定論的な baseline だけ）
+
+### AI-3. KNOWN LIMITATION: WebLLM のキャッシュ名
+
+WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`）は 01AS 専用名へ変更できない。
+これを**既知の制約（KNOWN LIMITATION）として許容する**。正式採用を妨げる問題としては扱わない。
+ただし Benchmark の段階では次を守る。
+
+- WebLLM model cache ≠ 01AS user data（モデルの削除で設定・履歴・評価を消さない）
+- WebLLM の全キャッシュを一括削除する処理を 01AS 側に実装しない。削除は対象モデル単位
+  （`deleteModelAllInfoInCache(modelId)`）だけ（同じ origin の別の WebLLM アプリと `webllm/*` を共有し得るため）。
+  `src/ai/architecture.test.ts` が一括削除の API を禁止する
+
+---
+
 ## 変更履歴
 
 ### 2026-09-27 マージ済みの限定依頼に基づく整合修正（PR #29）
@@ -701,6 +753,7 @@ D10 で 1 件、D11 で 2 件、D16 / D20 / D8 で 5 件（73 の T11・76 の T
 | 版 | 日付 | 内容 |
 | --- | --- | --- |
 | v1 | 2026-08-31 | A-1 〜 A-8 を承認（PR #1）。値の変更はなし、状態とドキュメントのみ更新。 |
+| AI-1〜3 | 2026-09-28 | PR #2。WebLLM 0.2.85 の依存追加（Benchmark Lab 限定）・Beta Pages 成果物での Developer Gate OPEN・WebLLM キャッシュ名の既知制約。戦術データは変更なし。 |
 | v1.3.4 | 2026-09-14 | A-9 〜 A-13 を承認。既存の重み（A-5〜A-8）は変更なし。新しい戦術判定軸の追加と、TRAINING の出題形式の入れ替え。 |
 | v1.3.5 | 2026-09-15 | A-14 〜 A-16 を承認。既存の重み（A-5〜A-8）は変更なし。得意ダブルの既定値が戦術判断を決めていた問題の修正と、SETUP TRAINING の回答単位の変更。 |
 | v1.3.6 | 2026-09-15 | A-17 を承認。既存の重み・第 1 候補の選び方は変更なし。実戦入力での残し候補の見せ方（最大 3 件・残り点つき）。 |

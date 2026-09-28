@@ -15,8 +15,21 @@ import {
  */
 const base = process.env.VITE_BASE_PATH ?? '/';
 
+/** WebLLM（Benchmark 用の推論ライブラリ）を入れる chunk の名前。precache から外すのに使う。 */
+const AI_RUNTIME_CHUNK = 'ai-runtime-webllm';
+
 export default defineConfig({
   base,
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/@mlc-ai/web-llm/')) return AI_RUNTIME_CHUNK;
+          return undefined;
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
@@ -72,6 +85,12 @@ export default defineConfig({
          */
         cacheId: CACHE_ID,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        /*
+         * 開発者向けの AI MODEL LAB（Developer Gate 配下）と、その推論ライブラリ（WebLLM）は
+         * precache しない。一般の利用者が使わない数 MB のコードを、全員の端末へ保存しないため。
+         * Lab を開いたときにだけネットワークから読み込む。
+         */
+        globIgnores: [`**/${AI_RUNTIME_CHUNK}-*.js`, '**/AiModelLabPage-*.{js,css}'],
         cleanupOutdatedCaches: true,
         /*
          * clientsClaim は true のまま。これは「初回にインストールされた
