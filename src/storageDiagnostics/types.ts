@@ -71,6 +71,7 @@ export interface StorageDiagnosticResult {
   readonly bytesPerSecond: number | null;
   readonly errorName: string | null;
   readonly errorMessage: string | null;
+  /** 書き始めた時点（前回の残りを削除したあと）。削除の反映（usageReclaimed）の基準にもする。 */
   readonly originUsageBefore: number | null;
   /** 書き込みの段階の直後（後片付けの前）。 */
   readonly originUsageAfter: number | null;

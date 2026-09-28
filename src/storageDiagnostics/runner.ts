@@ -108,7 +108,9 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
   const chunkBytes = Math.min(options.chunkBytes, targetBytes);
 
   const startedMs = now();
-  const before = await safeProbe(probeStorage);
+  // 開始前の値。前回の残りを削除できたら、削除のあとに測り直した値を「書き始めた時点」の基準にする
+  // （残りの分を基準に含めると、今回の分が消えずに残っても「元に戻った」と判定してしまう）。
+  let before = await safeProbe(probeStorage);
 
   let status: DiagnosticStatus = 'success';
   let failedPhase: DiagnosticPhase | null = null;
@@ -132,6 +134,7 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
     try {
       // 前回のテストが途中で閉じられて残ったデータを消してから測る（残りがあると容量の比較がずれる）。
       await adapter.cleanup();
+      before = await safeProbe(probeStorage);
       writeStartedMs = now();
       writer = await adapter.open();
     } catch (error) {

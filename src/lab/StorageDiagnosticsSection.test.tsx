@@ -11,12 +11,13 @@
  */
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DiagnosticAdapters } from '../storageDiagnostics/browserAdapters';
 import { MIB } from '../storageDiagnostics/constants';
 import { createFakeAdapter, type FakeAdapter, type FakeAdapterOptions } from '../storageDiagnostics/fakeAdapter';
 import type { StorageDiagnosticExport } from '../storageDiagnostics/report';
 import type { OriginStorageStatus } from '../storageDiagnostics/types';
+import { STORAGE_DIAGNOSTIC_RESULTS_KEY } from './labStorage';
 import StorageDiagnosticsSection, { type StorageDiagnosticsSectionProps } from './StorageDiagnosticsSection';
 
 const STATUS: OriginStorageStatus = { usageBytes: 304 * MIB, quotaBytes: 10.3 * 1024 * MIB, persisted: false };
@@ -64,8 +65,13 @@ async function settled() {
   await waitFor(() => expect(screen.getByTestId('diag-origin-usage')).not.toHaveTextContent('unknown'));
 }
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.clear();
 });
 
 describe('StorageDiagnosticsSection', () => {
@@ -212,9 +218,64 @@ describe('StorageDiagnosticsSection', () => {
       expect(await screen.findByTestId('diag-unreclaimed')).toHaveTextContent('Cache API: 300 MiB → 304 MiB');
       expect(screen.getByTestId('diag-unreclaimed')).toHaveTextContent('ページを再読み込み');
       expect(screen.getByTestId('diag-reclaimed-cache')).toHaveTextContent('まだ反映されていません（5.0 秒待機）');
+      // 再読み込みするまで、次のテストは始められない（容量がずれるため）。
+      expect(screen.getByTestId('diag-start-opfs')).toBeDisabled();
+      expect(screen.getByTestId('diag-start-all')).toBeDisabled();
+      expect(screen.getByTestId('diag-cleanup')).toBeEnabled();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('3 方式を順に測る途中で削除が反映されなければ、残りの方式は測らない（誤った Case を出さない）', async () => {
+    const user = userEvent.setup();
+    const adapters = fakes();
+    // OPFS の分だけ usage が増え、削除しても減らない。
+    const probeStorage = async (): Promise<OriginStorageStatus> => ({
+      usageBytes: 300 * MIB + adapters.opfs.calls.writes * MIB,
+      quotaBytes: 10 * 1024 * MIB,
+      persisted: false,
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<StorageDiagnosticsSection adapters={adapters} probeStorage={probeStorage} requestPersist={async () => null} testMode />);
+      await user.click(screen.getByTestId('diag-start-all'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(await screen.findByTestId('diag-skipped')).toHaveTextContent('IndexedDB / Cache API は測りませんでした');
+      expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('OPFS 4 MiB書き込み成功');
+      expect(screen.getByTestId('diag-status-indexeddb')).toHaveTextContent('Status: Not Tested');
+      expect(adapters.indexeddb.calls.open).toBe(0);
+      expect(adapters.cache.calls.open).toBe(0);
+      expect(screen.queryByTestId('diag-comparison')).toBeNull();
+      expect(screen.getByTestId('diag-start-indexeddb')).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('結果は再読み込み（画面を開き直す）をまたいで残り、方式ごとに測った結果で比較できる。記録は消せる', async () => {
+    const user = userEvent.setup();
+    const adapters = fakes({ cache: { quotaBytes: MIB } });
+    for (const backend of ['opfs', 'indexeddb', 'cache'] as const) {
+      const view = renderSection({ adapters });
+      await user.click(screen.getByTestId(`diag-start-${backend}`));
+      await waitFor(() => expect(screen.getByTestId(`diag-status-${backend}`)).not.toHaveTextContent('Not Tested'));
+      await waitFor(() => expect(screen.getByTestId(`diag-start-${backend}`)).toBeEnabled());
+      view.unmount();
+    }
+    const stored = JSON.parse(window.localStorage.getItem(STORAGE_DIAGNOSTIC_RESULTS_KEY) ?? '{}') as { results: unknown[] };
+    expect(STORAGE_DIAGNOSTIC_RESULTS_KEY.startsWith('01as-beta:ai.')).toBe(true);
+    expect(stored.results).toHaveLength(3);
+
+    renderSection({ adapters });
+    expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('OPFS 4 MiB書き込み成功');
+    expect(screen.getByTestId('diag-comparison-case')).toHaveTextContent('Case D');
+    await user.click(screen.getByTestId('diag-clear-results'));
+    expect(screen.queryByTestId('diag-comparison')).toBeNull();
+    expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('Status: Not Tested');
+    expect(window.localStorage.getItem(STORAGE_DIAGNOSTIC_RESULTS_KEY)).toBeNull();
   });
 
   it('使えない方式は「使えません」と表示し、測らない', async () => {

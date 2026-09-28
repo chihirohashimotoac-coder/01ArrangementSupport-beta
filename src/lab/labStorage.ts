@@ -2,7 +2,7 @@
  * AI MODEL LAB の保存（Beta の名前空間だけ）。
  *
  * - キーは必ず `namespacedKey()`（`01as-beta:`）で作り、`storage/localJson.ts` を通す
- * - 保存するのは Benchmark の結果と人手評価だけ。AI モデルのファイルは保存しない
+ * - 保存するのは Benchmark の結果と人手評価、保存容量の診断の結果（数値だけ）。AI モデルのファイル・診断のテストデータは保存しない
  *   （モデルは Runtime の保存領域。既定は OPFS の `tvmjs-opfs-store/webllm/*`。`docs/AI_MODEL_STORAGE.md`）
  * - モデルの削除はこの保存領域に触れない（人手評価・結果は残る）
  * - 利用者データ（設定・TRAINING 履歴・SIMULATION 設定）とは別のキー
@@ -13,8 +13,10 @@ import {
   type HumanRatings,
 } from '../ai/benchmark/export';
 import type { BenchmarkRun } from '../ai/benchmark/types';
-import { readJson, writeJson } from '../storage/localJson';
+import { readJson, removeKey, writeJson } from '../storage/localJson';
 import { namespacedKey } from '../storage/namespace';
+import { DIAGNOSTIC_BACKENDS } from '../storageDiagnostics/constants';
+import type { StorageDiagnosticResult } from '../storageDiagnostics/types';
 
 export const BENCHMARK_RATINGS_KEY = namespacedKey('ai.benchmark.ratings.v1');
 export const BENCHMARK_RUNS_KEY = namespacedKey('ai.benchmark.runs.v1');
@@ -58,4 +60,40 @@ export function deleteRun(runId: string): BenchmarkRun[] {
   const runs = loadRuns().filter((run) => run.runId !== runId);
   writeJson(BENCHMARK_RUNS_KEY, { version: 1, runs });
   return runs;
+}
+
+// ---------------------------------------------------------------------------
+// BROWSER STORAGE DIAGNOSTICS の結果（数値と文字列だけ。テストデータそのものは保存しない）
+// ---------------------------------------------------------------------------
+
+/**
+ * 診断の結果。ページを再読み込みしてから次の方式を測る手順（削除が usage に反映されないとき）でも
+ * 3 方式を比べられるよう、再読み込みをまたいで残す。
+ */
+export const STORAGE_DIAGNOSTIC_RESULTS_KEY = namespacedKey('ai.storage-diagnostic.results.v1');
+export const MAX_STORED_DIAGNOSTIC_RESULTS = 30;
+
+function isDiagnosticResult(value: unknown): value is StorageDiagnosticResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const result = value as Partial<StorageDiagnosticResult>;
+  return (DIAGNOSTIC_BACKENDS as readonly unknown[]).includes(result.backend) &&
+    (result.status === 'success' || result.status === 'failed' || result.status === 'aborted') &&
+    typeof result.targetBytes === 'number' && typeof result.writtenBytes === 'number' &&
+    typeof result.startedAt === 'string' && typeof result.cleanup === 'object' && result.cleanup !== null;
+}
+
+export function loadDiagnosticResults(): StorageDiagnosticResult[] {
+  const stored = readJson<unknown>(STORAGE_DIAGNOSTIC_RESULTS_KEY, null);
+  if (typeof stored !== 'object' || stored === null || (stored as { version?: unknown }).version !== 1) return [];
+  const results = (stored as { results?: unknown }).results;
+  return Array.isArray(results) ? results.filter(isDiagnosticResult) : [];
+}
+
+/** 結果を古い順で保存する（直近 MAX 件）。保存できなかったら false（画面の結果はそのまま使える）。 */
+export function saveDiagnosticResults(results: readonly StorageDiagnosticResult[]): boolean {
+  return writeJson(STORAGE_DIAGNOSTIC_RESULTS_KEY, { version: 1, results: results.slice(-MAX_STORED_DIAGNOSTIC_RESULTS) });
+}
+
+export function clearDiagnosticResults(): void {
+  removeKey(STORAGE_DIAGNOSTIC_RESULTS_KEY);
 }

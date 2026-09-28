@@ -113,7 +113,7 @@ Workbox の precache・Model Management の `01as-beta-ai-model:*`・01AS の利
 各テストの手順（`runner.ts`）:
 
 ```text
-origin の状態（前）→ 前回の残りを削除 → 開く → chunk を順に書く → 確定
+origin の状態（開始前）→ 前回の残りを削除 → origin の状態（書き始め＝基準）→ 開く → chunk を順に書く → 確定
 → origin の状態（後）→ 診断用のデータだけを削除 → 削除の反映を待つ（最大 5 秒）→ origin の状態（削除後）
 ```
 
@@ -152,9 +152,14 @@ origin の状態（前）→ 前回の残りを削除 → 開く → chunk を�
 
 そこで:
 
-- 削除のあと、Origin Usage が「開始前の usage ＋ 1 chunk」以内に戻るまで最大 5 秒待ち、結果に `usageReclaimed`（true / false / null）と
-  `reclaimWaitMs` を残す
-- 反映されていない結果があれば、画面に警告を出し、再読み込みしてから測るよう勧める
+- 削除のあと、Origin Usage が「書き始めの usage ＋ 1 chunk」以内に戻るまで最大 5 秒待ち、結果に `usageReclaimed`（true / false / null）と
+  `reclaimWaitMs` を残す。基準（`originUsageBefore`）は**前回の残りを削除したあと**に測り直した値
+  （残りの分を基準に含めると、今回の分が消えずに残っても「元に戻った」と誤判定するため）
+- 3 方式を順に測っている途中で `usageReclaimed: false` になったら、**残りの方式は測らない**（誤った Case を出さない）
+- このページで `usageReclaimed: false` の結果が出たら、**再読み込みするまで次のテストを始められない**
+  （「診断用のデータを削除」と JSON の保存はできる）
+- 結果（数値と文字列だけ）は Lab 専用のキー `01as-beta:ai.storage-diagnostic.results.v1`（localStorage、直近 30 件）に残し、
+  再読み込みをまたいで比較に使う。「記録した結果を消す」で消せる。01AS の利用者データ（`01as-beta:oas.*`）とは別のキー
 - 3 方式の順は OPFS → IndexedDB → Cache API（削除が反映されにくい Cache API を最後）
 - 比較の表に各方式の **Usage before** を出す（前の方式の残りが混ざっていないかを確かめられる）
 - **最も厳密に比べるには、方式ごとにページを再読み込みしてから 1 方式ずつ測る**
@@ -187,7 +192,7 @@ origin の状態（前）→ 前回の残りを削除 → 開く → chunk を�
 | `failedPhase` | `prepare`（前回の残りの削除・開く）/ `write` / `finalize`（OPFS の close） |
 | `durationMs` / `bytesPerSecond` | 書き込みの段階（開く〜確定）の時間と速さ。後片付けは含まない |
 | `errorName` / `errorMessage` | `DOMException.name` と message をそのまま |
-| `originUsageBefore` / `originUsageAfter` / `originUsageAfterCleanup` | `estimate().usage`（開始前 / 書き込みの直後・削除の前 / 削除の反映を待った後） |
+| `originUsageBefore` / `originUsageAfter` / `originUsageAfterCleanup` | `estimate().usage`（書き始め＝前回の残りを削除した後 / 書き込みの直後・削除の前 / 削除の反映を待った後） |
 | `originQuotaBefore` / `originQuotaAfter` | `estimate().quota` |
 | `usageReclaimed` / `reclaimWaitMs` | 削除が usage に反映されたか・待った時間（4.4 節） |
 | `persisted` | 開始時の `persisted()` |
@@ -220,7 +225,7 @@ origin の状態（前）→ 前回の残りを削除 → 開く → chunk を�
 }
 ```
 
-`results` はこの画面で実行した順（中止を含む）。`comparison` は 3 方式に同じ target size の完了した結果（成功・失敗）が
+`results` は実行した順（中止を含む。再読み込みの前の結果も含む。直近 30 件）。`comparison` は 3 方式に同じ target size の完了した結果（成功・失敗）が
 そろっているときだけ入る（同じ方式が複数あれば最後の結果）。
 
 ---
@@ -298,8 +303,8 @@ Usage before を比べる。
 | unit（`browserAdapters.test.ts`） | 偽の OPFS / IndexedDB / Cache Storage。WebLLM のモデル・アプリのキャッシュを置いた状態で、ほかを変えずに診断用だけを作って消す。IndexedDB の削除の blocked | 数十 KiB（メモリ上） |
 | unit（`report.test.ts`） | Case A〜D・other の判定、JSON export の項目 | — |
 | unit（`architecture.test.ts`） | 診断用の名前以外を削除・作成しない（呼び出しの引数まで）、webllm/*・利用者データ・通信に触れない、依存の向き | — |
-| unit（`src/lab/StorageDiagnosticsSection.test.tsx`・`AiModelLabPage.test.tsx`） | 画面: 開いただけでは書かない・大きさの選択肢・進行中の表示・中止・画面を離れたら中止・失敗・cleanup failed・比較・persist は別ボタン・JSON・Lab との排他 | Fake |
-| E2E（`e2e/gate-open/storageDiagnostics.gate-open.spec.ts`） | 実ブラウザ（Chromium）の OPFS / IndexedDB / Cache API へ test mode で書き、WebLLM のモデル（偽物）・利用者データが残り、診断用のデータだけが消えること・JSON | **4 MiB × 3 方式** |
+| unit（`src/lab/StorageDiagnosticsSection.test.tsx`・`AiModelLabPage.test.tsx`） | 画面: 開いただけでは書かない・大きさの選択肢・進行中の表示・中止・画面を離れたら中止・失敗・cleanup failed・比較・persist は別ボタン・JSON・Lab との排他・削除が反映されないときに残りを測らず再読み込みまで止める・結果が再読み込みをまたいで残る | Fake |
+| E2E（`e2e/gate-open/storageDiagnostics.gate-open.spec.ts`） | 実ブラウザ（Chromium）の OPFS / IndexedDB / Cache API へ test mode で書き（削除が反映されずに止まったら再読み込みして残りを測る）、WebLLM のモデル（偽物）・利用者データが残り、診断用のデータだけが消えること・JSON | **4 MiB × 3 方式** |
 
 **CI では 1 GiB の書き込みをしない**（CI のディスクを使わない）。1 GiB 以上は実機で手動で測る（9 節）。
 
@@ -310,11 +315,12 @@ Usage before を比べる。
 1. 公開 Beta を開く（更新の案内が出たら更新する）。**通常のウィンドウ**（シークレットではない）で行う
 2. 設定 → DEVELOPER → 「AI MODEL LAB を開く」
 3. **BROWSER STORAGE DIAGNOSTICS** で Origin Usage / Origin Quota / Persistent / 前回のテストの残り を記録する
-   （Persistent Storage はまだ要求しない）
+   （Persistent Storage はまだ要求しない。以前の結果が残っていれば「記録した結果を消す」）
 4. Test size = **1 GiB**（既定）のまま「ストレージテスト開始（3 方式を同じ 1 GiB で順に）」を押す
 5. 終わったら COMPARISON の Case と、各方式の結果（成功 / errorName・Failed at・Last successful）を確認する
-6. 「削除した診断用のデータが、まだ Origin Usage から減っていません」の警告が出たら、または Usage before が方式ごとに
-   大きく違ったら、**ページを再読み込みして、方式ごとに 1 つずつ**「1 GiBテスト」を押して測り直す（毎回、再読み込みしてから）
+6. 「削除した診断用のデータが、まだ Origin Usage から減っていません」が出たら（残りの方式は測られず、次のテストも始められない）、
+   **ページを再読み込みして、まだ測っていない方式の「1 GiBテスト」を 1 つずつ**押す（反映されなければ、また再読み込みしてから次へ）。
+   結果は再読み込みしても残り、3 方式がそろうと COMPARISON が出る。Usage before が方式ごとに大きく違わないかも確認する
 7. 「診断結果を保存（JSON）」で保存する
 8. （任意）1 GiB がすべて成功したら、Advanced を開いて 2 GiB でも同じ手順で測る
 9. （任意・最後に）「Persistent Storageを要求」を押し、Persistent が Yes になったら 4〜7 をもう一度行い、結果を別の JSON で保存する

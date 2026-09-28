@@ -33,7 +33,7 @@ describe('runStorageDiagnostic', () => {
       adapter,
       targetBytes: 64 * MIB,
       chunkBytes: 16 * MIB,
-      probeStorage: probeSequence(300 * MIB, 364 * MIB, 300 * MIB),
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 364 * MIB, 300 * MIB),
       onProgress: (value) => progress.push(value.writtenBytes),
       now: () => (clock += 250),
       createChunk: zeroChunk,
@@ -87,7 +87,7 @@ describe('runStorageDiagnostic', () => {
       adapter,
       targetBytes: 1024 * MIB,
       chunkBytes: 16 * MIB,
-      probeStorage: probeSequence(300 * MIB, 604 * MIB, 300 * MIB),
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 604 * MIB, 300 * MIB),
       createChunk: zeroChunk,
     });
 
@@ -237,7 +237,7 @@ describe('runStorageDiagnostic', () => {
       targetBytes: 64 * MIB,
       chunkBytes: 16 * MIB,
       // 前 300 → 後 364 → 削除直後はまだ 364 → 0.5 秒後も 364 → 1 秒後に 300
-      probeStorage: probeSequence(300 * MIB, 364 * MIB, 364 * MIB, 364 * MIB, 300 * MIB),
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 364 * MIB, 364 * MIB, 364 * MIB, 300 * MIB),
       sleep: async (ms) => {
         waits.push(ms);
       },
@@ -254,7 +254,7 @@ describe('runStorageDiagnostic', () => {
       adapter: createFakeAdapter({ backend: 'cache' }),
       targetBytes: 64 * MIB,
       chunkBytes: 16 * MIB,
-      probeStorage: probeSequence(300 * MIB, 364 * MIB),
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 364 * MIB),
       reclaimTimeoutMs: 2000,
       reclaimPollMs: 500,
       sleep: async () => {},
@@ -267,6 +267,22 @@ describe('runStorageDiagnostic', () => {
     expect(result.originUsageAfterCleanup).toBe(364 * MIB);
   });
 
+  it('前回の残りを削除したあとの usage を基準にする（残りの分で「元に戻った」と誤判定しない）', async () => {
+    const result = await runStorageDiagnostic({
+      adapter: createFakeAdapter({ backend: 'opfs' }),
+      targetBytes: 64 * MIB,
+      chunkBytes: 16 * MIB,
+      // 開始前 400（前回の残り 100 を含む）→ 残りの削除後 300 → 書いた後 364 → 今回の分が消えずに 364 のまま
+      probeStorage: probeSequence(400 * MIB, 300 * MIB, 364 * MIB),
+      reclaimTimeoutMs: 1000,
+      sleep: async () => {},
+      createChunk: zeroChunk,
+    });
+    expect(result.originUsageBefore).toBe(300 * MIB);
+    expect(result.usageReclaimed).toBe(false);
+    expect(result.originUsageAfterCleanup).toBe(364 * MIB);
+  });
+
   it('中止・削除の失敗・usage 不明のときは反映を待たない', async () => {
     const sleep = async () => {
       throw new Error('待たないはず');
@@ -276,7 +292,7 @@ describe('runStorageDiagnostic', () => {
       adapter: createFakeAdapter({ backend: 'opfs' }),
       targetBytes: 64 * MIB,
       chunkBytes: 16 * MIB,
-      probeStorage: probeSequence(300 * MIB, 332 * MIB),
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 332 * MIB),
       signal: controller.signal,
       onProgress: () => controller.abort(),
       sleep,

@@ -15,6 +15,8 @@ import { expect, test, type Page } from '@playwright/test';
 const DIAG = '01as-beta-storage-diagnostic';
 const USER_KEY = '01as-beta:oas.e2e-user-data';
 const USER_VALUE = '{"version":1,"e2e":true}';
+/** 診断の結果（Lab 専用のキー）。利用者データではない。 */
+const RESULTS_KEY = '01as-beta:ai.storage-diagnostic.results.v1';
 
 async function blockExternal(page: Page): Promise<{ external: string[]; scripts: string[] }> {
   const traffic = { external: [] as string[], scripts: [] as string[] };
@@ -162,8 +164,26 @@ test('test mode（4 MiB）で 3 方式を実測し、WebLLM・利用者データ
   await expect(page.getByTestId('storage-diagnostics-test-mode')).toBeVisible();
   await expect(page.getByTestId('diag-size')).toHaveValue('4MiB');
 
+  // 3 方式を順に測る。削除が usage に反映されない方式があると（Chromium の Cache API・一時プロファイルの
+  // IndexedDB）、そこで止まり、再読み込みを求める。そのときは再読み込みして、まだ測っていない方式を 1 つずつ測る。
   await page.getByTestId('diag-start-all').click();
-  await expect(page.getByTestId('diag-comparison-case')).toContainText('Case A', { timeout: 30_000 });
+  const done = page.getByTestId('diag-comparison-case');
+  const blocked = page.getByTestId('diag-unreclaimed');
+  await expect(done.or(blocked).first()).toBeVisible({ timeout: 30_000 });
+  for (let attempt = 0; attempt < 3 && !(await done.isVisible()); attempt += 1) {
+    await page.reload();
+    await page.getByTestId('nav-settings').click();
+    await page.getByTestId('open-ai-lab').click();
+    const remaining: string[] = [];
+    for (const backend of ['opfs', 'indexeddb', 'cache']) {
+      if ((await page.getByTestId(`diag-status-${backend}`).innerText()).includes('Not Tested')) remaining.push(backend);
+    }
+    expect(remaining.length).toBeGreaterThan(0);
+    await page.getByTestId(`diag-start-${remaining[0]}`).click();
+    await expect(page.getByTestId(`diag-status-${remaining[0]}`)).toContainText('書き込み成功', { timeout: 30_000 });
+  }
+
+  await expect(done).toContainText('Case A');
   await expect(page.getByTestId('diag-status-opfs')).toContainText('OPFS 4 MiB書き込み成功');
   await expect(page.getByTestId('diag-status-indexeddb')).toContainText('IndexedDB 4 MiB書き込み成功');
   await expect(page.getByTestId('diag-status-cache')).toContainText('Cache API 4 MiB書き込み成功');
@@ -172,23 +192,28 @@ test('test mode（4 MiB）で 3 方式を実測し、WebLLM・利用者データ
 
   // WebLLM のモデル（偽物）と利用者データは残り、診断用のデータは残っていない。
   expect(await snapshot(page)).toEqual(SEEDED);
+  // 結果（数値だけ）は Lab 専用のキーに残る（再読み込みをまたいで比べるため）。
+  expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), RESULTS_KEY)) ?? '{}').results).toHaveLength(3);
 
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('diag-export').click()]);
   const report = JSON.parse(readFileSync((await download.path())!, 'utf8')) as {
     schema: string;
     schemaVersion: number;
     testMode: boolean;
-    storage: { quotaBytes: number | null };
     results: { backend: string; status: string; targetBytes: number; writtenBytes: number; errorName: string | null; cleanup: { status: string } }[];
     comparison: { case: string } | null;
   };
   expect(report.schema).toBe('01as-browser-storage-diagnostic');
   expect(report.schemaVersion).toBe(1);
   expect(report.testMode).toBe(true);
-  expect(report.results.map((item) => [item.backend, item.status, item.targetBytes, item.writtenBytes, item.errorName, item.cleanup.status])).toEqual([
-    ['opfs', 'success', 4 * 1024 ** 2, 4 * 1024 ** 2, null, 'ok'],
-    ['indexeddb', 'success', 4 * 1024 ** 2, 4 * 1024 ** 2, null, 'ok'],
+  expect(
+    report.results
+      .map((item) => [item.backend, item.status, item.targetBytes, item.writtenBytes, item.errorName, item.cleanup.status])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  ).toEqual([
     ['cache', 'success', 4 * 1024 ** 2, 4 * 1024 ** 2, null, 'ok'],
+    ['indexeddb', 'success', 4 * 1024 ** 2, 4 * 1024 ** 2, null, 'ok'],
+    ['opfs', 'success', 4 * 1024 ** 2, 4 * 1024 ** 2, null, 'ok'],
   ]);
   expect(report.comparison?.case).toBe('A');
 

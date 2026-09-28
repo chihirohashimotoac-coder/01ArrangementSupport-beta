@@ -10,6 +10,8 @@
  * - 中止・画面を離れる・ページを閉じると中止し、診断用のデータだけを削除する
  * - 永続化の要求（persist）は別のボタン。書き込みのテストとは混ぜない
  * - 保存領域の操作はすべて `src/storageDiagnostics/` が行う（この画面は呼ぶだけ）
+ * - 削除が Origin Usage に反映されないまま次を測ると容量がずれるので、そのときは残りの方式を測らず、
+ *   再読み込みするまで次のテストを始めさせない。結果は再読み込みをまたいで残し（`labStorage.ts`）、比べられるようにする
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -35,6 +37,7 @@ import {
 import { buildDiagnosticExport, compareBackends, describeBrowser } from '../storageDiagnostics/report';
 import { errorMessageOf, errorNameOf, runStorageDiagnostic } from '../storageDiagnostics/runner';
 import type { DiagnosticProgress, OriginStorageStatus, StorageDiagnosticResult } from '../storageDiagnostics/types';
+import { clearDiagnosticResults, loadDiagnosticResults, saveDiagnosticResults } from './labStorage';
 
 export interface StorageDiagnosticsSectionProps {
   /** テストでは Fake Adapter を渡す。既定はブラウザの OPFS / IndexedDB / Cache API。 */
@@ -96,7 +99,15 @@ export default function StorageDiagnosticsSection({
   const [advanced, setAdvanced] = useState(false);
   const [status, setStatus] = useState<OriginStorageStatus | null>(null);
   const [revision, setRevision] = useState(0);
-  const [results, setResults] = useState<StorageDiagnosticResult[]>([]);
+  /** これまでの結果（再読み込みの前の結果を含む。古い順）。 */
+  const [results, setResults] = useState<StorageDiagnosticResult[]>(() => loadDiagnosticResults());
+  /**
+   * このページで測った結果のうち、削除が Origin Usage に反映されなかったもの。あれば、再読み込みするまで
+   * 次のテストを始めない（残りの分が quota に数えられ、次の方式が少なく見えるため）。
+   */
+  const [unreclaimedInPage, setUnreclaimedInPage] = useState<StorageDiagnosticResult[]>([]);
+  /** 反映されなかったため、測らなかった方式。 */
+  const [skipped, setSkipped] = useState<DiagnosticBackend[]>([]);
   const [progress, setProgress] = useState<DiagnosticProgress | null>(null);
   /** 実行中（キューを含む）の方式。null なら待機中。 */
   const [running, setRunning] = useState<DiagnosticBackend | null>(null);
@@ -112,7 +123,8 @@ export default function StorageDiagnosticsSection({
   const size = sizeOptions.find((option) => option.id === sizeId) ?? sizeOptions[0];
   const sizeLabel = formatDiagnosticBytes(size.bytes);
   const idle = running === null && !cleaning;
-  const canStart = idle && !disabled;
+  const needsReload = unreclaimedInPage.length > 0;
+  const canStart = idle && !disabled && !needsReload;
 
   useEffect(() => {
     onRunningChange?.(!idle);
@@ -160,12 +172,13 @@ export default function StorageDiagnosticsSection({
   const runBackends = useCallback(
     async (backends: readonly DiagnosticBackend[]) => {
       // 同じ描画のうちに 2 回押されても、2 つのテストを同時に走らせない。
-      if (!idle || disabled || abortRef.current !== null) return;
+      if (!idle || disabled || needsReload || abortRef.current !== null) return;
       const controller = new AbortController();
       abortRef.current = controller;
       setCleanupMessage(null);
+      setSkipped([]);
       try {
-        for (const backend of backends) {
+        for (const [position, backend] of backends.entries()) {
           if (controller.signal.aborted) break;
           const adapter = adapters[backend];
           if (!adapter.isAvailable()) continue;
@@ -182,8 +195,18 @@ export default function StorageDiagnosticsSection({
             },
           });
           if (!mountedRef.current) return;
-          setResults((items) => [...items, result]);
+          setResults((items) => {
+            const next = [...items, result];
+            saveDiagnosticResults(next);
+            return next;
+          });
           setRevision((value) => value + 1);
+          if (result.usageReclaimed === false) {
+            // 削除が反映されないまま次の方式を測ると、その方式の結果がずれる（Case を誤る）。残りは測らない。
+            setUnreclaimedInPage((items) => [...items, result]);
+            setSkipped(backends.slice(position + 1).filter((item) => adapters[item].isAvailable()));
+            break;
+          }
         }
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
@@ -193,7 +216,7 @@ export default function StorageDiagnosticsSection({
         }
       }
     },
-    [idle, disabled, adapters, size.bytes, chunkBytes, probeStorage],
+    [idle, disabled, needsReload, adapters, size.bytes, chunkBytes, probeStorage],
   );
 
   /** 診断用のデータだけを削除する（前回のテストが途中で閉じられたとき用）。 */
@@ -238,8 +261,6 @@ export default function StorageDiagnosticsSection({
   const latestByBackend = (backend: DiagnosticBackend): StorageDiagnosticResult | undefined =>
     results.filter((item) => item.backend === backend).at(-1);
   const comparison = compareBackends(results, size.bytes);
-  /** 削除が Origin Usage にまだ反映されていない結果（同じページで続けて測ると、容量がずれる）。 */
-  const unreclaimed = results.filter((item) => item.usageReclaimed === false);
 
   const exportJson = () => {
     const exportedAt = new Date().toISOString();
@@ -323,6 +344,17 @@ export default function StorageDiagnosticsSection({
         <button type="button" data-testid="diag-cleanup" disabled={!idle} onClick={() => void cleanupAll()}>
           診断用のデータを削除
         </button>
+        <button
+          type="button"
+          data-testid="diag-clear-results"
+          disabled={!idle || results.length === 0}
+          onClick={() => {
+            clearDiagnosticResults();
+            setResults([]);
+          }}
+        >
+          記録した結果を消す
+        </button>
       </div>
       {disabled && idle && <p className="lab__hint">モデルの取得・読み込みの間は開始できません（測定がずれるため）。</p>}
       <p className="lab__hint">
@@ -336,15 +368,25 @@ export default function StorageDiagnosticsSection({
         </p>
       )}
 
-      {unreclaimed.length > 0 && (
-        <p className="lab__message lab__failure" role="status" data-testid="diag-unreclaimed">
-          削除した診断用のデータが、まだ Origin Usage から減っていません（
-          {unreclaimed
-            .map((item) => `${DIAGNOSTIC_BACKEND_LABEL[item.backend]}: ${formatDiagnosticBytes(item.originUsageBefore)} → ${formatDiagnosticBytes(item.originUsageAfterCleanup)}`)
-            .join(' / ')}
-          ）。Chromium では削除（特に Cache API）が、ページを再読み込みするまで usage に反映されないことがあります。
-          このまま続けて測ると、次の方式が使える容量が少なく見えます。正確に比べるには、ページを再読み込みしてから測ってください。
-        </p>
+      {needsReload && (
+        <div className="lab__message lab__failure" role="status" data-testid="diag-unreclaimed">
+          <p>
+            削除した診断用のデータが、まだ Origin Usage から減っていません（
+            {unreclaimedInPage
+              .map((item) => `${DIAGNOSTIC_BACKEND_LABEL[item.backend]}: ${formatDiagnosticBytes(item.originUsageBefore)} → ${formatDiagnosticBytes(item.originUsageAfterCleanup)}`)
+              .join(' / ')}
+            ）。Chromium では削除（特に Cache API）が、ページを再読み込みするまで usage に反映されないことがあります。
+          </p>
+          {skipped.length > 0 && (
+            <p data-testid="diag-skipped">
+              このまま測ると容量が少なく見えるため、{skipped.map((item) => DIAGNOSTIC_BACKEND_LABEL[item]).join(' / ')} は測りませんでした。
+            </p>
+          )}
+          <p>
+            ページを再読み込みしてから、まだ測っていない方式の「テスト」を押してください（それまで次のテストは始められません）。
+            ここまでの結果は再読み込みしても残り、比較に使えます。
+          </p>
+        </div>
       )}
 
       {DIAGNOSTIC_BACKENDS.map((backend) => (
