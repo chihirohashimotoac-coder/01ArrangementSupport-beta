@@ -175,11 +175,15 @@ const NUMBER_PATTERN = /\d+(?:\.\d+)?/g;
 const FREE_NUMBER_MAX = 3;
 
 /**
- * 表記ゆれで検証をすり抜けないよう、比べる前に正規化する。
- * NFKC で全角英数字（Ｔ２０・７７・Ｃ）を半角へ、大文字化で小文字の的（t20・d16・bull）を揃える。
+ * 検証用の canonical form。表記ゆれで検証をすり抜けないよう、比べる前に正規化する。
+ *
+ * - Unicode NFKC: 全角・数学用英数字などの互換表記を ASCII へ（Ｔ２０ / ｔ１ / 𝐭𝟏 / ７７ / Ｃ）
+ * - ASCII 英字の大文字化: 小文字の的（t20 / d16 / bull）を揃える
+ *
+ * **検証にだけ使う**。ユーザーへ表示する説明文（`AiResult.text`）は Provider の原文のまま。
  */
-function normalizeForClaims(text: string): string {
-  return text.normalize('NFKC').toUpperCase();
+export function canonicalClaimText(text: string): string {
+  return text.normalize('NFKC').replace(/[a-z]+/g, (letters) => letters.toUpperCase());
 }
 
 function tokensOf(text: string, pattern: RegExp): Set<string> {
@@ -210,8 +214,8 @@ function reasonCodesOf(evidence: AiEvidence): Set<string> {
 export function findUnsupportedClaims(output: AiTextOutput, evidence: AiEvidence): string[] {
   const issues: string[] = [];
   const source = serializeEvidence(evidence);
-  const normalizedSource = normalizeForClaims(source);
-  const text = normalizeForClaims(output.text);
+  const normalizedSource = canonicalClaimText(source);
+  const text = canonicalClaimText(output.text);
 
   const allowedSegments = tokensOf(normalizedSource, SEGMENT_PATTERN);
   for (const segment of tokensOf(text, SEGMENT_PATTERN)) {
