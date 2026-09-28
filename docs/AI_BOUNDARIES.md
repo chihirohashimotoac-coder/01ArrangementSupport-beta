@@ -128,8 +128,11 @@ AI にも決定論的な説明にも**事実を補わせず**、`{ status: 'insu
 - モデルの導入は利用者が**明示的に**ダウンロードしたときだけ行います（自動取得しない）。
 - モデルのファイルは利用者データと別の保存領域（`01as-beta-ai-model:`）に置き、
   モデルを削除しても設定・学習履歴は消えません（`docs/AI_ARCHITECTURE.md` 8.4 節）。
+  開発者向けの AI MODEL LAB（WebLLM）は、WebLLM が名前を固定した `webllm/*` の Cache Storage を使います
+  （利用者データとは別。モデルを削除しても設定・学習履歴・Benchmark の評価は消えません。同 11.4 節）。
 - 現時点で通信する AI Provider は存在しません。`src/ai/**` は通信 API を使いません
-  （`src/ai/architecture.test.ts` で検査）。
+  （`src/ai/architecture.test.ts` で検査）。Lab でモデルを取得するのは WebLLM の内部処理で、
+  確認画面で「ダウンロードを開始」を押したときだけです。
 
 ---
 
@@ -150,6 +153,8 @@ AI の説明を作る過程でデータの問題に気づいても**修正せず
 さらに、次の変更は**人間の承認を経てから**別 PR で行います。
 
 - AI モデル・推論ライブラリ（WebLLM / transformers.js / llama.cpp・wasm 等）の追加
+  （PR #2 で、開発者向け Benchmark Lab の primary runtime 候補として WebLLM を版固定で追加。
+  利用者向けの機能では使っていません。ほかの Runtime の追加は引き続き承認が必要）
 - WebGPU 推論の導入
 - 外部 AI API（OpenAI / Claude / Gemini 等）への接続・API key の導入
 - backend（Cloudflare Worker / Supabase / Firebase 等）の追加
