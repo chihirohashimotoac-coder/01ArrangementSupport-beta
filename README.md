@@ -1,4 +1,18 @@
-# 01 Arrangement Support
+# 01 Arrangement Support Beta
+
+> **このリポジトリは 01 Arrangement Support の Beta 版です。**
+>
+> | | URL |
+> | --- | --- |
+> | Beta（このリポジトリの公開先） | https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/ |
+> | Production（正式版） | https://chihirohashimotoac-coder.github.io/01ArrangementSupport/ |
+> | Production リポジトリ（READ ONLY） | https://github.com/chihirohashimotoac-coder/01ArrangementSupport |
+>
+> - Beta は Production と**保存データを共有しません**（設定・学習履歴は Beta 専用。`docs/BETA.md`）。
+> - **AI 機能は実験段階**で、既定では **OFF** です。この版には AI モデルも外部 AI API も入っていません。
+> - **Decision Engine は従来どおり決定論的**です。チェックアウト・セットアップ・推奨度・Bust 判定などは
+>   すべて rule based engine が決め、**AI は判断を行いません**。AI は engine の判断を説明する役割に限定します
+>   （`docs/AI_ARCHITECTURE.md` / `docs/AI_BOUNDARIES.md`）。
 
 スティールダーツ 01 ゲーム（Double Out）の**アレンジ判断**を学ぶための Web アプリ / PWA です。
 
@@ -11,7 +25,7 @@
 
 までを扱います。**答えを覚えるアプリではなく、01 アレンジの「判断規則」を身につけるアプリ**です。
 
-公開先: https://chihirohashimotoac-coder.github.io/01ArrangementSupport/
+公開先（Beta）: https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/
 
 ---
 
@@ -34,6 +48,8 @@
   C（成立するが戦術的に非推奨）には必ず非推奨理由を表示します。
 - **完全オフライン。** ログイン・バックエンド・外部 DB・生成 AI API を一切使いません。
   判断はすべて決定論的な rule based engine です。
+  Beta で追加した AI 基盤（`src/ai/`）も、engine の結果を説明するための層で、
+  判断には使いません（既定 OFF・モデル未搭載）。
 
 ---
 
@@ -65,7 +81,9 @@ src/
   components/ 表示部品
   pages/      画面
   hooks/      React との接続
-  storage/    localStorage（設定・学習履歴）
+  storage/    localStorage（設定・学習履歴。Beta は `01as-beta:` 名前空間）
+  config/     配信チャネル（Beta）の識別子
+  ai/         Beta: AI 説明層の基盤（Evidence Layer / Provider interface / fallback）
 scripts/      Excel 取り込み・検算、アイコン生成、SPA フォールバック
 data/source/  一次資料（添付 Excel）
 docs/         仕様書
@@ -111,6 +129,8 @@ engine が計算し、テストで検証している**検証可能な事実**で
 - `main` への直接 push は禁止（PR 必須、自動 merge しない）
 - 戦術データの変更には Human Approval が必要
 - 既存の `Darts-Calculator` リポジトリは READ ONLY
+- Production リポジトリ `01ArrangementSupport` も READ ONLY（Beta の取り込み元としてだけ使う）
+- 生成 AI は判断をしない: **Deterministic Engine decides. AI explains.**
 
 ---
 
@@ -127,3 +147,7 @@ engine が計算し、テストで検証している**検証可能な事実**で
 | `docs/TEST_STRATEGY.md` | テスト方針 |
 | `docs/DATA_CONFLICTS.md` | 資料と計算結果の食い違い・確認事項 |
 | `docs/APPROVALS.md` | 戦術方針の人間承認記録（v1） |
+| `docs/BETA.md` | Beta 版の位置づけ・Production からの分離（Pages / PWA / Storage / Cache） |
+| `docs/AI_ARCHITECTURE.md` | Beta: AI 説明層のアーキテクチャ（一方向依存） |
+| `docs/AI_BOUNDARIES.md` | Beta: AI が触れてよい領域・いけない領域 |
+| `docs/AI_EVALUATION.md` | Beta: 将来のモデル比較のための評価基準 |
