@@ -32,6 +32,31 @@ async function watchTraffic(page: Page): Promise<Traffic> {
   return traffic;
 }
 
+/**
+ * WebLLM が OPFS に保存するファイル（`tvmjs-opfs-store/` 以下）の数。ディレクトリが無ければ 0。
+ * 調べるだけで、作成・削除はしない。
+ */
+async function opfsModelFiles(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    type Dir = { values(): AsyncIterable<{ kind: string; name: string; getDirectoryHandle?: unknown }> };
+    const root = (await navigator.storage.getDirectory()) as unknown as Dir & { getDirectoryHandle(name: string): Promise<Dir> };
+    let store: Dir;
+    try {
+      store = await root.getDirectoryHandle('tvmjs-opfs-store');
+    } catch {
+      return 0;
+    }
+    const count = async (dir: Dir): Promise<number> => {
+      let files = 0;
+      for await (const entry of dir.values()) {
+        files += entry.kind === 'file' ? 1 : await count(entry as unknown as Dir);
+      }
+      return files;
+    };
+    return count(store);
+  });
+}
+
 const loaded = (traffic: Traffic, pattern: RegExp) => traffic.scripts.some((path) => pattern.test(path));
 const LAB_CHUNK = /\/AiModelLabPage-[^/]+\.js$/;
 const WEBLLM_CHUNK = /\/ai-runtime-webllm-[^/]+\.js$/;
@@ -90,6 +115,11 @@ test('設定画面に Lab の入口があり、開くと Lab だけを遅延読�
   await expect(page.getByTestId('lab-experimental-notice')).toContainText('まだ決まっていません');
   await expect(page.getByTestId('lab-cases')).toHaveText('100', { timeout: 30_000 });
   expect(loaded(traffic, LAB_CHUNK)).toBe(true);
+  // モデルの保存方式は OPFS が既定。origin の usage / quota / persisted を表示する（取得はしない）。
+  await expect(page.getByTestId('storage-backend')).toContainText('OPFS');
+  await expect(page.getByTestId('lab-storage-backend-select')).toHaveValue('opfs');
+  await expect(page.getByTestId('storage-persistent')).toHaveText(/^(yes|no|unknown)$/);
+  await expect(page.getByTestId('storage-quota')).not.toHaveText('');
   // 既定の候補は baseline（モデルなし）。WebLLM はまだ読まない。
   expect(loaded(traffic, WEBLLM_CHUNK)).toBe(false);
 
@@ -102,9 +132,10 @@ test('設定画面に Lab の入口があり、開くと Lab だけを遅延読�
   expect(loaded(traffic, WEBLLM_CHUNK)).toBe(false);
   expect(traffic.external).toEqual([]);
   expect(await webLlmCacheEntries(page)).toBe(0);
+  expect(await opfsModelFiles(page)).toBe(0);
 });
 
-test('モデルを選ぶと WebLLM を遅延読み込みするが、確認して「ダウンロードを開始」を押すまでモデルを取得しない', async ({ page }) => {
+test('モデルを選んでも、確認して「ダウンロードを開始」を押すまでモデルを取得せず、保存領域（Cache API・OPFS）も作らない', async ({ page }) => {
   await fakeWebGpu(page);
   const traffic = await watchTraffic(page);
   await page.goto('./');
@@ -112,9 +143,16 @@ test('モデルを選ぶと WebLLM を遅延読み込みするが、確認して
   await page.getByTestId('open-ai-lab').click();
   await expect(page.getByTestId('device-adapter')).toContainText('available');
 
+  await expect(page.getByTestId('storage-backend')).toContainText('OPFS');
+
   await page.getByTestId('lab-model-select').selectOption('webllm-qwen3-1.7b');
   await expect(page.getByTestId('lab-model-status')).toHaveText('未ダウンロード', { timeout: 30_000 });
-  expect(loaded(traffic, WEBLLM_CHUNK)).toBe(true);
+  // 方式ごとの保存状況を、保存領域を作らずに確かめる。どの方式にも WebLLM の保存領域が無いので、
+  // WebLLM のライブラリも読まずに「なし」と分かる（WebLLM を読むのは保存領域があるときと Download / Load のとき）。
+  await expect(page.getByTestId('lab-model-storage-presence')).toHaveText('OPFS: なし / IndexedDB: なし / Cache API: なし', {
+    timeout: 30_000,
+  });
+  expect(loaded(traffic, WEBLLM_CHUNK)).toBe(false);
   await expect(page.getByTestId('lab-compatibility')).toContainText('CAN_TRY');
 
   await page.getByTestId('lab-download').click();
@@ -125,6 +163,7 @@ test('モデルを選ぶと WebLLM を遅延読み込みするが、確認して
   await expect(confirm).toContainText('1.99 GiB');
   await expect(confirm).toContainText('WebLLM');
   await expect(confirm).toContainText('Apache-2.0');
+  await expect(page.getByTestId('lab-download-confirm-storage')).toHaveText('OPFS');
   // 「ダウンロードを開始」は押さない（CI で実モデルを取得しない）。
   await confirm.getByText('キャンセル').click();
   await expect(confirm).toHaveCount(0);
@@ -133,6 +172,12 @@ test('モデルを選ぶと WebLLM を遅延読み込みするが、確認して
   await expect(page.getByTestId('lab-run')).toBeDisabled();
   expect(traffic.external).toEqual([]);
   expect(await webLlmCacheEntries(page)).toBe(0);
+  // OPFS にも何も書いていない（確認処理で保存領域のディレクトリも作らない）。
+  expect(await opfsModelFiles(page)).toBe(0);
+  expect(await page.evaluate(async () => {
+    const root = (await navigator.storage.getDirectory()) as unknown as { getDirectoryHandle(name: string): Promise<unknown> };
+    return root.getDirectoryHandle('tvmjs-opfs-store').then(() => true, () => false);
+  })).toBe(false);
 });
 
 test('Service Worker は Lab・WebLLM・モデルを precache しない（chunk は生成されている）', async ({ page, request }) => {

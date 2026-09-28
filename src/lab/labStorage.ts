@@ -3,7 +3,7 @@
  *
  * - キーは必ず `namespacedKey()`（`01as-beta:`）で作り、`storage/localJson.ts` を通す
  * - 保存するのは Benchmark の結果と人手評価だけ。AI モデルのファイルは保存しない
- *   （モデルは Runtime のキャッシュ。`webllm/*` の Cache Storage）
+ *   （モデルは Runtime の保存領域。既定は OPFS の `tvmjs-opfs-store/webllm/*`。`docs/AI_MODEL_STORAGE.md`）
  * - モデルの削除はこの保存領域に触れない（人手評価・結果は残る）
  * - 利用者データ（設定・TRAINING 履歴・SIMULATION 設定）とは別のキー
  */

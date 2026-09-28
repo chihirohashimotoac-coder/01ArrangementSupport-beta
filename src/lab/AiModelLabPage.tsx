@@ -10,6 +10,10 @@
  * - モデルの取得は、モデル名・ダウンロードサイズ・推定メモリ・Runtime・ライセンスを表示した
  *   確認のあと、利用者が「ダウンロードを開始」を押したときだけ行う
  * - モデルの削除は Runtime のキャッシュだけを消す。Benchmark の結果・人手評価・利用者データは残る
+ * - モデルの保存方式（Storage Backend）は既定で OPFS。方式ごとに保存場所が別なので、存在確認・削除も
+ *   方式ごとに行う。失敗しても別の方式へ自動では切り替えない（`docs/AI_MODEL_STORAGE.md`）
+ * - 取得・読み込みの失敗は区分（quota-exceeded など）と診断情報（保存方式・name・message・
+ *   origin の usage / quota・進み具合）を画面に出し、JSON で保存できる
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BENCHMARK_CANDIDATES, BASELINE_CANDIDATE_ID } from '../ai/benchmark/candidates';
@@ -26,6 +30,27 @@ import {
   type HumanRatings,
 } from '../ai/benchmark/export';
 import { summarizeRun, type Distribution } from '../ai/benchmark/metrics';
+import {
+  classifyModelLoadFailure,
+  describeModelLoadFailure,
+  errorMessageOf,
+  errorNameOf,
+  type ModelLoadFailureDiagnostics,
+} from '../ai/benchmark/modelLoadFailure';
+import {
+  MODEL_STORAGE_BACKENDS,
+  MODEL_STORAGE_DESCRIPTION_JA,
+  MODEL_STORAGE_LABEL,
+  chooseModelStorageBackend,
+  detectModelStorageSupport,
+  estimatedDownloadFootprint,
+  isModelStorageBackend,
+  probeStorageStatus,
+  requestPersistentStorage,
+  type ModelStorageBackend,
+  type ModelStorageSupport,
+  type StorageStatus,
+} from '../ai/benchmark/modelStorage';
 import { PROMPT_VERSION_LABEL } from '../ai/benchmark/prompt';
 import { runBenchmark } from '../ai/benchmark/runner';
 import { createTemplateRuntime } from '../ai/benchmark/runtimes/templateRuntime';
@@ -46,15 +71,29 @@ import './AiModelLabPage.css';
 
 type CacheState = 'unknown' | 'checking' | 'cached' | 'not-cached';
 type Busy = 'idle' | 'downloading' | 'loading' | 'running' | 'deleting';
+/** 方式ごとの保存状況。`unavailable` はこのブラウザにその方式の API が無い。 */
+type Presence = boolean | null | 'unavailable';
 
 export interface AiModelLabPageProps {
   readonly onBack: () => void;
-  /** テストで Mock Runtime を渡す。既定は template / WebLLM。 */
-  readonly runtimes?: readonly BenchmarkRuntime[];
+  /**
+   * テストで Mock Runtime を渡す。既定は template / WebLLM（選んだ保存方式で作る）。
+   * 関数なら保存方式を変えるたびに呼ぶ（1 つの Runtime は 1 つの保存方式だけを使う）。
+   */
+  readonly runtimes?: readonly BenchmarkRuntime[] | ((backend: ModelStorageBackend | null) => readonly BenchmarkRuntime[]);
   readonly candidates?: readonly BenchmarkCandidate[];
   readonly buildDataset?: () => BenchmarkDataset;
   readonly probe?: () => Promise<DeviceReport>;
+  /** このブラウザが公開している保存方式。既定は API の有無から判定。 */
+  readonly storageSupport?: ModelStorageSupport;
+  /** origin の usage / quota / persisted を調べる。既定は `navigator.storage`。 */
+  readonly probeStorage?: () => Promise<StorageStatus>;
+  /** 永続化の要求（best-effort）。既定は `navigator.storage.persist()`。 */
+  readonly requestPersist?: () => Promise<boolean | null>;
 }
+
+const defaultRuntimes = (backend: ModelStorageBackend | null): readonly BenchmarkRuntime[] =>
+  backend === null ? [createTemplateRuntime()] : [createTemplateRuntime(), createWebLlmRuntime({ storageBackend: backend })];
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
@@ -80,6 +119,17 @@ function formatDistribution(distribution: Distribution, format: (value: number |
 function number(value: number | null, digits = 1): string {
   return value === null ? '—' : value.toFixed(digits);
 }
+
+function formatStorageBytes(bytes: number | null | undefined): string {
+  return bytes === null || bytes === undefined ? 'unknown' : formatBytes(bytes);
+}
+
+function formatPersisted(value: boolean | null | undefined): string {
+  return value === true ? 'yes' : value === false ? 'no' : 'unknown';
+}
+
+const PRESENCE_LABEL = (value: Presence | undefined): string =>
+  value === undefined ? '確認中…' : value === 'unavailable' ? '使えません' : value === null ? '不明' : value ? 'あり' : 'なし';
 
 const CACHE_LABEL: Record<CacheState, string> = {
   unknown: '未確認',
@@ -118,11 +168,17 @@ export default function AiModelLabPage({
   candidates = BENCHMARK_CANDIDATES,
   buildDataset = coreDataset,
   probe = probeDevice,
+  storageSupport: injectedStorageSupport,
+  probeStorage = probeStorageStatus,
+  requestPersist = requestPersistentStorage,
 }: AiModelLabPageProps) {
-  const runtimes = useMemo(
-    () => injectedRuntimes ?? [createTemplateRuntime(), createWebLlmRuntime()],
-    [injectedRuntimes],
-  );
+  const storageSupport = useMemo(() => injectedStorageSupport ?? detectModelStorageSupport(), [injectedStorageSupport]);
+  const storageChoice = useMemo(() => chooseModelStorageBackend(storageSupport), [storageSupport]);
+  const [storageBackend, setStorageBackend] = useState<ModelStorageBackend | null>(storageChoice.backend);
+  const runtimes = useMemo(() => {
+    if (typeof injectedRuntimes === 'function') return injectedRuntimes(storageBackend);
+    return injectedRuntimes ?? defaultRuntimes(storageBackend);
+  }, [injectedRuntimes, storageBackend]);
   const [dataset, setDataset] = useState<BenchmarkDataset | null>(null);
   const [device, setDevice] = useState<DeviceReport | null>(null);
   const [candidateId, setCandidateId] = useState(candidates[0]?.id ?? BASELINE_CANDIDATE_ID);
@@ -139,7 +195,17 @@ export default function AiModelLabPage({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => loadRuns()[0]?.runId ?? null);
   const [ratings, setRatings] = useState<HumanRatings>(() => loadRatings());
   const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ModelLoadFailureDiagnostics | null>(null);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
+  /** 方式ごとの保存状況（候補 × Runtime の保存方式ごと）。 */
+  const [presenceByKey, setPresenceByKey] = useState<Record<string, Partial<Record<ModelStorageBackend, Presence>>>>({});
+  /** 保存状況を読み直すたびに増やす（取得・削除のあと）。 */
+  const [storageRevision, setStorageRevision] = useState(0);
+  /** download 前後の origin usage の差（候補 × 保存方式ごと）。 */
+  const [footprint, setFootprint] = useState<Record<string, number | null>>({});
   const abortRef = useRef<AbortController | null>(null);
+  /** 永続化の要求は、この画面で 1 回まで（permission の連続要求をしない）。 */
+  const persistRequestedRef = useRef(false);
 
   // Lab を離れたら、進行中の取得・Benchmark を中止し、読み込んだモデルを解放する
   // （画面の外で数 GB の取得が続いたり、WebGPU の資源が残ったりしないように）。
@@ -153,6 +219,9 @@ export default function AiModelLabPage({
 
   const candidate = candidates.find((item) => item.id === candidateId) ?? candidates[0];
   const runtime = runtimes.find((item) => item.supports(candidate)) ?? null;
+  const runtimeBackend = runtime?.modelStorage?.backend ?? null;
+  /** 候補 × 保存方式。保存方式が違えば、同じ候補でも別の保存場所として扱う。 */
+  const storageKey = `${runtimeBackend ?? '-'}:${candidate.id}`;
   const compatibility = judgeCompatibility(candidate, device);
   const isLoaded = loaded?.candidateId === candidate.id;
   const effectiveThinking: ThinkingMode = candidate.supportsThinkingToggle ? thinking : 'not-applicable';
@@ -174,31 +243,89 @@ export default function AiModelLabPage({
     };
   }, [probe]);
 
-  // 選んだ候補のキャッシュ状態（取得はしない）。
+  // origin 全体の保存状況（usage / quota / persisted）。
+  useEffect(() => {
+    let active = true;
+    void probeStorage()
+      .catch(() => null)
+      .then((status) => {
+        if (active) setStorageStatus(status);
+      });
+    return () => {
+      active = false;
+    };
+  }, [probeStorage, storageRevision]);
+
+  // 選んだ候補のキャッシュ状態（取得はしない）。保存済みなら、その方式でのサイズも数える。
   useEffect(() => {
     if (!runtime || candidate.labAvailability !== 'RUNNABLE') return;
     let active = true;
-    void runtime.isCached(candidate).then((cached) => {
+    void runtime.isCached(candidate).then(async (cached) => {
       if (!active) return;
       setCacheState((state) => ({
         ...state,
-        [candidate.id]: cached === null ? 'unknown' : cached ? 'cached' : 'not-cached',
+        [storageKey]: cached === null ? 'unknown' : cached ? 'cached' : 'not-cached',
       }));
+      if (cached !== true || candidate.runtime === 'deterministic') return;
+      const size = await runtime.cachedSizeBytes(candidate).catch(() => null);
+      if (active) setMeasuredSize((state) => ({ ...state, [storageKey]: size }));
     });
     return () => {
       active = false;
     };
-  }, [runtime, candidate]);
+  }, [runtime, candidate, storageKey, storageRevision]);
+
+  // 方式ごとの保存状況（「この方式に無い」＝「どこにも無い」とは扱わない）。取得も保存領域の作成もしない。
+  useEffect(() => {
+    const modelStorage = runtime?.modelStorage;
+    if (!modelStorage || candidate.labAvailability !== 'RUNNABLE') return;
+    let active = true;
+    void Promise.all(
+      MODEL_STORAGE_BACKENDS.map(async (backend): Promise<[ModelStorageBackend, Presence]> => [
+        backend,
+        storageSupport[backend] ? await modelStorage.isCachedIn(candidate, backend).catch(() => null) : 'unavailable',
+      ]),
+    ).then((entries) => {
+      if (active) setPresenceByKey((state) => ({ ...state, [storageKey]: Object.fromEntries(entries) }));
+    });
+    return () => {
+      active = false;
+    };
+  }, [runtime, candidate, storageKey, storageSupport, storageRevision]);
+
+  /** 保存方式を変える。Runtime を作り直し（前の Runtime は解放）、読み込み済みの状態を外す。取得はしない。 */
+  const changeStorageBackend = useCallback((next: ModelStorageBackend) => {
+    abortRef.current?.abort();
+    setStorageBackend(next);
+    setLoaded(null);
+    setConfirmDownload(false);
+    setConfirmDelete(false);
+    setMessage(null);
+  }, []);
 
   const load = useCallback(
     async (allowDownload: boolean) => {
       if (!runtime) return;
       setConfirmDownload(false);
       setMessage(null);
+      setFailure(null);
       setBusy(allowDownload ? 'downloading' : 'loading');
       setProgress({ fraction: 0, text: '' });
       const controller = new AbortController();
       abortRef.current = controller;
+      let lastProgress: { fraction: number; text: string } | null = null;
+      let before: StorageStatus | null = null;
+      if (allowDownload) {
+        // 永続化は eviction 対策（best-effort）。容量制限の対策ではない。拒否されても取得は続け、
+        // この画面では 1 回だけ要求する。結果を待たずに取得を始める。
+        if (!persistRequestedRef.current && storageStatus?.persisted !== true) {
+          persistRequestedRef.current = true;
+          void requestPersist()
+            .catch(() => null)
+            .then(() => setStorageRevision((value) => value + 1));
+        }
+        before = await probeStorage().catch(() => null);
+      }
       try {
         if (loaded && loaded.runtimeId !== runtime.id) {
           await runtimes.find((item) => item.id === loaded.runtimeId)?.unload();
@@ -206,24 +333,50 @@ export default function AiModelLabPage({
         const record = await runtime.load(candidate, {
           allowDownload,
           signal: controller.signal,
-          onProgress: (fraction, text) => setProgress({ fraction, text }),
+          onProgress: (fraction, text) => {
+            lastProgress = { fraction, text };
+            setProgress({ fraction, text });
+          },
         });
         setLoaded({ candidateId: candidate.id, runtimeId: runtime.id, load: record });
-        setCacheState((state) => ({ ...state, [candidate.id]: 'cached' }));
-        const size = await runtime.cachedSizeBytes(candidate);
-        setMeasuredSize((state) => ({ ...state, [candidate.id]: size }));
+        setCacheState((state) => ({ ...state, [storageKey]: 'cached' }));
+        const size = await runtime.cachedSizeBytes(candidate).catch(() => null);
+        setMeasuredSize((state) => ({ ...state, [storageKey]: size }));
+        if (record.kind === 'download') {
+          const after = await probeStorage().catch(() => null);
+          setFootprint((state) => ({ ...state, [storageKey]: estimatedDownloadFootprint(before, after) }));
+        }
       } catch (error) {
         // 失敗した Runtime は、前に読み込んでいたモデルも外れていることがある（WebLLM の reload 失敗）。
         // 画面の「読み込み済み」を残すと、Run が読み込みを飛ばして全件 not-loaded になるので解除する。
         if (loaded?.runtimeId === runtime.id) setLoaded(null);
-        setMessage(`読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
+        const status = await probeStorage().catch(() => null);
+        const progressAtFailure = lastProgress as { fraction: number; text: string } | null;
+        setFailure({
+          schema: '01as-ai-model-load-failure',
+          schemaVersion: 1,
+          occurredAt: new Date().toISOString(),
+          candidateId: candidate.id,
+          runtimeId: runtime.id,
+          runtimeModelId: candidate.runtimeModelId,
+          download: allowDownload,
+          storageBackend: runtimeBackend,
+          failureClass: classifyModelLoadFailure(error, { backend: runtimeBackend, aborted: controller.signal.aborted }),
+          errorName: errorNameOf(error),
+          message: errorMessageOf(error),
+          progressFraction: progressAtFailure?.fraction ?? null,
+          progressText: progressAtFailure?.text ?? null,
+          storage: status,
+          storageBefore: before,
+        });
       } finally {
         setBusy('idle');
         setProgress(null);
         abortRef.current = null;
+        setStorageRevision((value) => value + 1);
       }
     },
-    [runtime, runtimes, candidate, loaded],
+    [runtime, runtimes, candidate, loaded, storageKey, runtimeBackend, storageStatus, probeStorage, requestPersist],
   );
 
   const unload = useCallback(async () => {
@@ -236,17 +389,24 @@ export default function AiModelLabPage({
     if (!runtime) return;
     setConfirmDelete(false);
     setBusy('deleting');
+    const backendLabel = runtimeBackend === null ? '' : `（保存方式: ${MODEL_STORAGE_LABEL[runtimeBackend]}）`;
     try {
       await runtime.deleteCache(candidate);
       if (loaded?.candidateId === candidate.id) setLoaded(null);
-      setCacheState((state) => ({ ...state, [candidate.id]: 'not-cached' }));
-      setMessage(`${candidate.displayName} のモデルキャッシュを削除しました（Benchmark の結果・人手評価・利用者データは残っています）。`);
+      setCacheState((state) => ({ ...state, [storageKey]: 'not-cached' }));
+      setMeasuredSize((state) => {
+        const next = { ...state };
+        delete next[storageKey];
+        return next;
+      });
+      setMessage(`${candidate.displayName} のモデルキャッシュ${backendLabel}を削除しました（ほかの保存方式のモデル・Benchmark の結果・人手評価・利用者データは残っています）。`);
     } catch (error) {
-      setMessage(`削除できませんでした: ${String(error)}`);
+      setMessage(`削除できませんでした${backendLabel}: ${errorMessageOf(error)}`);
     } finally {
       setBusy('idle');
+      setStorageRevision((value) => value + 1);
     }
-  }, [runtime, candidate, loaded]);
+  }, [runtime, candidate, loaded, storageKey, runtimeBackend]);
 
   const run = useCallback(async () => {
     if (!runtime || !dataset) return;
@@ -271,7 +431,7 @@ export default function AiModelLabPage({
         caseIds,
         settings: { thinking: effectiveThinking },
         load: loadRecord,
-        modelSizeBytes: measuredSize[candidate.id] ?? null,
+        modelSizeBytes: measuredSize[storageKey] ?? null,
         device,
         signal: controller.signal,
         onCaseComplete: (_, index) => setProgress({ fraction: (index + 1) / total, text: `${index + 1} / ${total}` }),
@@ -287,11 +447,20 @@ export default function AiModelLabPage({
       setProgress(null);
       abortRef.current = null;
     }
-  }, [runtime, dataset, scope, candidate, effectiveThinking, loaded, measuredSize, device]);
+  }, [runtime, dataset, scope, candidate, effectiveThinking, loaded, measuredSize, storageKey, device]);
 
   const selectedRun = runs.find((item) => item.runId === selectedRunId) ?? null;
   // まだ結果が無い間は確認中（isCached は取得をしない）。
-  const cache = cacheState[candidate.id] ?? (candidate.labAvailability === 'RUNNABLE' && runtime ? 'checking' : 'unknown');
+  const cache = cacheState[storageKey] ?? (candidate.labAvailability === 'RUNNABLE' && runtime ? 'checking' : 'unknown');
+  const measured = measuredSize[storageKey];
+  const presence = presenceByKey[storageKey] ?? {};
+  const measuredKnown = Object.prototype.hasOwnProperty.call(measuredSize, storageKey);
+  const failureDescription = failure
+    ? describeModelLoadFailure(failure, { opfsAvailable: storageSupport.opfs })
+    : null;
+  const elsewhere = runtimeBackend === null || cache !== 'not-cached'
+    ? []
+    : MODEL_STORAGE_BACKENDS.filter((backend) => backend !== runtimeBackend && presence[backend] === true);
   const runnable = candidate.labAvailability === 'RUNNABLE' && runtime !== null;
   const needsModel = candidate.runtime !== 'deterministic';
   const canRun = runnable && dataset !== null && busy === 'idle' && compatibility.verdict !== 'UNSUPPORTED' &&
@@ -320,6 +489,68 @@ export default function AiModelLabPage({
         <p className="lab__message" role="status" data-testid="lab-message">
           {message}
         </p>
+      )}
+
+      {failure && failureDescription && (
+        <div className="lab__message lab__failure" role="alert" data-testid="lab-failure">
+          {failureDescription.linesJa.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          <div className="lab__actions">
+            {failureDescription.suggestOpfs && (
+              <button
+                type="button"
+                data-testid="lab-retry-opfs"
+                disabled={busy !== 'idle'}
+                onClick={() => {
+                  changeStorageBackend('opfs');
+                  setFailure(null);
+                  setConfirmDownload(true);
+                }}
+              >
+                OPFS で再試行
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="lab-failure-export"
+              onClick={() =>
+                download(`01as-ai-model-load-failure-${failure.occurredAt.replace(/[:.]/g, '-')}.json`, JSON.stringify(failure, null, 2), 'application/json')}
+            >
+              診断情報を保存（JSON）
+            </button>
+            <button type="button" onClick={() => setFailure(null)}>
+              閉じる
+            </button>
+          </div>
+          <details>
+            <summary>診断情報</summary>
+            <dl className="lab__facts" data-testid="lab-failure-diagnostics">
+              <dt>Error class</dt>
+              <dd data-testid="failure-class">{failure.failureClass}</dd>
+              <dt>Storage backend</dt>
+              <dd>{failure.storageBackend === null ? '—' : MODEL_STORAGE_LABEL[failure.storageBackend]}</dd>
+              <dt>Error name</dt>
+              <dd>{failure.errorName ?? '—'}</dd>
+              <dt>Message</dt>
+              <dd className="lab__ua">{failure.message}</dd>
+              <dt>Model</dt>
+              <dd>{failure.runtimeModelId ?? failure.candidateId}</dd>
+              <dt>Download progress</dt>
+              <dd>{failure.progressFraction === null ? '—' : `${(failure.progressFraction * 100).toFixed(1)}%`}</dd>
+              <dt>Origin Usage / Quota（失敗の直後）</dt>
+              <dd>
+                {formatStorageBytes(failure.storage?.usageBytes)} / {formatStorageBytes(failure.storage?.quotaBytes)}
+              </dd>
+              <dt>Origin Usage（取得の前）</dt>
+              <dd>{formatStorageBytes(failure.storageBefore?.usageBytes)}</dd>
+              <dt>Storage Persistent</dt>
+              <dd>{formatPersisted(failure.storage?.persisted)}</dd>
+              <dt>Time</dt>
+              <dd>{failure.occurredAt}</dd>
+            </dl>
+          </details>
+        </div>
       )}
 
       <section className="lab__section" data-testid="lab-device">
@@ -352,6 +583,63 @@ export default function AiModelLabPage({
           </dl>
         )}
         <p className="lab__hint">GPU の VRAM 量はブラウザの API では取得できないため、表示・推測しません。</p>
+      </section>
+
+      <section className="lab__section" data-testid="lab-storage">
+        <h2>STORAGE</h2>
+        <dl className="lab__facts">
+          <dt>Model Storage Backend</dt>
+          <dd data-testid="storage-backend">
+            {storageBackend === null
+              ? '使えません（このブラウザは OPFS / IndexedDB / Cache API のどれも公開していません）'
+              : `${MODEL_STORAGE_LABEL[storageBackend]} — ${MODEL_STORAGE_DESCRIPTION_JA[storageBackend]}`}
+          </dd>
+          <dt>使える方式</dt>
+          <dd data-testid="storage-support">
+            {MODEL_STORAGE_BACKENDS.map((backend) => `${MODEL_STORAGE_LABEL[backend]} ${storageSupport[backend] ? 'yes' : 'no'}`).join(' / ')}
+          </dd>
+          <dt>Storage Persistent</dt>
+          <dd data-testid="storage-persistent">{formatPersisted(storageStatus?.persisted)}</dd>
+          <dt>Origin Usage</dt>
+          <dd data-testid="storage-usage">{formatStorageBytes(storageStatus?.usageBytes)}</dd>
+          <dt>Origin Quota</dt>
+          <dd data-testid="storage-quota">{formatStorageBytes(storageStatus?.quotaBytes)}</dd>
+        </dl>
+        {storageBackend !== null && (
+          <label className="lab__field">
+            <span>保存方式</span>
+            <select
+              data-testid="lab-storage-backend-select"
+              value={storageBackend}
+              disabled={busy !== 'idle'}
+              onChange={(event) => {
+                if (isModelStorageBackend(event.target.value)) changeStorageBackend(event.target.value);
+              }}
+            >
+              {MODEL_STORAGE_BACKENDS.map((backend) => (
+                <option key={backend} value={backend} disabled={!storageSupport[backend]}>
+                  {MODEL_STORAGE_LABEL[backend]}
+                  {backend === 'opfs' ? '（既定）' : ''}
+                  {storageSupport[backend] ? '' : '（使えません）'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {storageChoice.usedFallback && (
+          <p className="lab__hint" data-testid="storage-fallback">
+            このブラウザは OPFS の API を公開していないため、推奨順（OPFS → IndexedDB → Cache API）で
+            {storageChoice.backend === null ? '' : ` ${MODEL_STORAGE_LABEL[storageChoice.backend]} `}を初期値にしました。
+          </p>
+        )}
+        <p className="lab__hint">
+          保存方式が違えば、同じモデルでも保存場所は別です。方式を切り替えても、別の方式に保存したモデルは移動・削除されません
+          （切り替えた方式に無ければ、その方式へ新しくダウンロードします）。取得に失敗しても、別の方式へ自動では切り替えません。
+        </p>
+        <p className="lab__hint">
+          Origin Usage / Quota は origin 全体の値（navigator.storage.estimate()）で、モデル単位の値ではありません。
+          Storage Persistent は eviction（自動削除）への対策で、容量制限の対策ではありません。
+        </p>
       </section>
 
       <section className="lab__section" data-testid="lab-model">
@@ -396,12 +684,31 @@ export default function AiModelLabPage({
                   ? `読み込み済み（${LOAD_KIND_LABEL[loaded.load.kind]}・${formatMs(loaded.load.loadTimeMs)}）`
                   : CACHE_LABEL[cache]}
           </dd>
+          {runtime?.modelStorage && candidate.labAvailability === 'RUNNABLE' && (
+            <>
+              <dt>保存状況（方式ごと）</dt>
+              <dd data-testid="lab-model-storage-presence">
+                {MODEL_STORAGE_BACKENDS.map((backend) => `${MODEL_STORAGE_LABEL[backend]}: ${PRESENCE_LABEL(presence[backend])}`).join(' / ')}
+              </dd>
+            </>
+          )}
           <dt>Download size</dt>
           <dd data-testid="lab-download-size">
-            {measuredSize[candidate.id] != null
-              ? `${formatBytes(measuredSize[candidate.id])}（キャッシュから計測）`
-              : formatBytes(candidate.downloadSizeBytes)}
+            {measured != null
+              ? `${formatBytes(measured)}（${runtimeBackend === null ? '保存領域' : MODEL_STORAGE_LABEL[runtimeBackend]} から計測）`
+              : measuredKnown && cache === 'cached'
+                ? `unknown（${runtimeBackend === null ? 'この保存領域' : MODEL_STORAGE_LABEL[runtimeBackend]} では、モデル単位のサイズを正確に数えられません）`
+                : formatBytes(candidate.downloadSizeBytes)}
           </dd>
+          {Object.prototype.hasOwnProperty.call(footprint, storageKey) && (
+            <>
+              <dt>Estimated download footprint</dt>
+              <dd data-testid="lab-download-footprint">
+                {formatStorageBytes(footprint[storageKey])}
+                （download 前後の origin usage の差。origin 全体の差分で、モデルのファイルの厳密なサイズではありません）
+              </dd>
+            </>
+          )}
           <dt>Estimated memory</dt>
           <dd data-testid="lab-estimated-memory">
             {candidate.estimatedVramBytes === null ? '不明' : `${formatBytes(candidate.estimatedVramBytes)}（Runtime の設定値・VRAM の目安）`}
@@ -419,6 +726,12 @@ export default function AiModelLabPage({
           <dd>{candidate.adoptionStatus}</dd>
         </dl>
         <p className="lab__hint">{candidate.notesJa}</p>
+        {elsewhere.length > 0 && (
+          <p className="lab__hint" data-testid="lab-model-elsewhere">
+            このモデルは {elsewhere.map((backend) => MODEL_STORAGE_LABEL[backend]).join(' / ')} に保存されています。
+            保存方式を切り替えると、再ダウンロードせずに Load できます。
+          </p>
+        )}
 
         {needsModel && runnable && (
           <div className="lab__actions">
@@ -473,12 +786,16 @@ export default function AiModelLabPage({
               <dd>{formatBytes(candidate.estimatedVramBytes)}</dd>
               <dt>Runtime</dt>
               <dd>{runtime?.labelJa}</dd>
+              <dt>保存方式</dt>
+              <dd data-testid="lab-download-confirm-storage">
+                {runtimeBackend === null ? '—' : MODEL_STORAGE_LABEL[runtimeBackend]}
+              </dd>
               <dt>License</dt>
               <dd>{candidate.license}</dd>
             </dl>
             <p className="lab__hint">
-              モデルは配布元から取得し、ブラウザのキャッシュ（Runtime のキャッシュ領域）へ保存します。
-              01AS の利用者データとは別の場所で、「モデルを削除」で消せます。
+              モデルは配布元から取得し、ブラウザの保存領域（上の保存方式）へ保存します。
+              01AS の利用者データとは別の場所で、「モデルを削除」で消せます（この保存方式のこのモデルだけを消します）。
             </p>
             <div className="lab__actions">
               <button type="button" data-testid="lab-download-start" onClick={() => void load(true)}>
@@ -494,8 +811,8 @@ export default function AiModelLabPage({
         {confirmDelete && (
           <div className="lab__confirm" role="dialog" aria-label="削除の確認" data-testid="lab-delete-confirm">
             <p>
-              {candidate.displayName} のモデルキャッシュを削除します。TRAINING 履歴・SIMULATION 設定・設定・
-              Benchmark の結果・人手評価は削除しません。
+              {candidate.displayName} のモデルキャッシュ（保存方式: {runtimeBackend === null ? '—' : MODEL_STORAGE_LABEL[runtimeBackend]}）を削除します。
+              ほかの保存方式のモデル・TRAINING 履歴・SIMULATION 設定・設定・Benchmark の結果・人手評価は削除しません。
             </p>
             <div className="lab__actions">
               <button type="button" className="lab__danger" data-testid="lab-delete-start" onClick={() => void removeCache()}>
