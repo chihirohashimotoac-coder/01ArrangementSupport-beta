@@ -34,7 +34,7 @@ import {
   formatDiagnosticBytes,
   type DiagnosticBackend,
 } from '../storageDiagnostics/constants';
-import { buildDiagnosticExport, compareBackends, describeBrowser } from '../storageDiagnostics/report';
+import { buildDiagnosticExport, comparableResultOf, compareBackends, describeBrowser } from '../storageDiagnostics/report';
 import { STALE_USAGE_ERROR_NAME, errorMessageOf, errorNameOf, runStorageDiagnostic } from '../storageDiagnostics/runner';
 import type { DiagnosticProgress, OriginStorageStatus, StorageDiagnosticResult } from '../storageDiagnostics/types';
 import { clearDiagnosticResults, loadDiagnosticResults, saveDiagnosticResults } from './labStorage';
@@ -448,7 +448,8 @@ export default function StorageDiagnosticsSection({
             </thead>
             <tbody>
               {DIAGNOSTIC_BACKENDS.map((backend) => {
-                const result = results.filter((item) => item.backend === backend && item.targetBytes === comparison.targetBytes && item.status !== 'aborted').at(-1);
+                // Case の判定と同じ結果を表示する（書き込みの前の失敗・中止は使わない）。
+                const result = comparableResultOf(results, backend, comparison.targetBytes);
                 return (
                   <tr key={backend}>
                     <td>{DIAGNOSTIC_BACKEND_LABEL[backend]}</td>

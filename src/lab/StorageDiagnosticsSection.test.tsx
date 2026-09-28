@@ -332,6 +332,51 @@ describe('StorageDiagnosticsSection', () => {
     }
   });
 
+  it('比較表の各行は、Case の判定に使った結果を表示する（あとの書き込み前の失敗を表示しない）', async () => {
+    const at = (backend: 'opfs' | 'indexeddb' | 'cache', status: 'success' | 'failed', extra: Record<string, unknown> = {}) => ({
+      backend,
+      writeMethod: `fake ${backend}`,
+      status,
+      startedAt: '2026-09-28T00:00:00.000Z',
+      finishedAt: '2026-09-28T00:00:01.000Z',
+      targetBytes: 4 * MIB,
+      chunkBytes: MIB,
+      writtenBytes: status === 'success' ? 4 * MIB : 2 * MIB,
+      lastSuccessfulBytes: status === 'success' ? 4 * MIB : 2 * MIB,
+      failedAtBytes: status === 'success' ? null : 3 * MIB,
+      failedPhase: status === 'success' ? null : 'write',
+      durationMs: 1000,
+      bytesPerSecond: null,
+      errorName: status === 'success' ? null : 'QuotaExceededError',
+      errorMessage: null,
+      originUsageBefore: 300 * MIB,
+      originUsageAfter: 304 * MIB,
+      originQuotaBefore: 10 * 1024 * MIB,
+      originQuotaAfter: 10 * 1024 * MIB,
+      originUsageAfterCleanup: 300 * MIB,
+      usageReclaimed: true,
+      reclaimWaitMs: 0,
+      persisted: false,
+      cleanup: { status: 'ok', errorName: null, errorMessage: null },
+      ...extra,
+    });
+    const stored = [
+      at('opfs', 'success'),
+      at('indexeddb', 'success'),
+      at('cache', 'failed'),
+      // あとで OPFS を測り直したが、書き込みの前に失敗した（比較に使わない）。
+      at('opfs', 'failed', { failedPhase: 'prepare', writtenBytes: 0, lastSuccessfulBytes: 0, failedAtBytes: 0, errorName: 'StaleUsageError' }),
+    ];
+    window.localStorage.setItem(STORAGE_DIAGNOSTIC_RESULTS_KEY, JSON.stringify({ version: 1, results: stored }));
+    renderSection({ adapters: fakes() });
+    expect(screen.getByTestId('diag-comparison-case')).toHaveTextContent('Case D');
+    const opfsRow = within(screen.getByTestId('diag-comparison')).getByText('OPFS').closest('tr')!;
+    expect(opfsRow).toHaveTextContent('success');
+    expect(opfsRow).toHaveTextContent('4 MiB');
+    expect(opfsRow).not.toHaveTextContent('StaleUsageError');
+    await settled();
+  });
+
   it('使えない方式は「使えません」と表示し、測らない', async () => {
     const user = userEvent.setup();
     const adapters = fakes({ opfs: { available: false } });

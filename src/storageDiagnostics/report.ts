@@ -26,16 +26,32 @@ export const COMPARISON_INTERPRETATION_JA: Readonly<Record<ComparisonCase, strin
 };
 
 /**
- * 3 方式の比較。どれかの方式に、その大きさで完了（成功・失敗）した結果が無ければ null。
- * 同じ target size の結果が複数あれば、最後のものを使う。
+ * 比較に使える結果か。中止した結果と、書き込みの前の失敗（前回の残りを消せない・開けない・削除が反映されない）は、
+ * その方式の容量の結果ではないので使わない。
+ */
+export function isComparable(result: StorageDiagnosticResult, targetBytes: number): boolean {
+  if (result.targetBytes !== targetBytes || result.status === 'aborted') return false;
+  return !(result.status === 'failed' && result.failedPhase === 'prepare');
+}
+
+/** その方式の、比較に使う結果（比較に使える最後の結果）。画面の比較表も Case もこれを使う。 */
+export function comparableResultOf(
+  results: readonly StorageDiagnosticResult[],
+  backend: DiagnosticBackend,
+  targetBytes: number,
+): StorageDiagnosticResult | undefined {
+  return results.filter((result) => result.backend === backend && isComparable(result, targetBytes)).at(-1);
+}
+
+/**
+ * 3 方式の比較。どれかの方式に、その大きさで比較に使える結果（成功・書き込みまで走った失敗）が無ければ null。
+ * 同じ方式の結果が複数あれば、比較に使える最後のものを使う。
  */
 export function compareBackends(results: readonly StorageDiagnosticResult[], targetBytes: number): StorageComparison | null {
   const latest: Partial<Record<DiagnosticBackend, 'success' | 'failed'>> = {};
-  for (const result of results) {
-    if (result.targetBytes !== targetBytes || result.status === 'aborted') continue;
-    // 書き込みの前の失敗（前回の残りを消せない・開けない・削除が反映されない）は、その方式の容量の結果ではない。
-    if (result.status === 'failed' && result.failedPhase === 'prepare') continue;
-    latest[result.backend] = result.status;
+  for (const backend of DIAGNOSTIC_BACKENDS) {
+    const result = comparableResultOf(results, backend, targetBytes);
+    if (result && result.status !== 'aborted') latest[backend] = result.status;
   }
   if (!DIAGNOSTIC_BACKENDS.every((backend) => latest[backend] !== undefined)) return null;
   const outcomes = latest as Record<DiagnosticBackend, 'success' | 'failed'>;

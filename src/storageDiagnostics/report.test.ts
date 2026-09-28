@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GIB, MIB, type DiagnosticBackend } from './constants';
-import { buildDiagnosticExport, compareBackends } from './report';
+import { buildDiagnosticExport, comparableResultOf, compareBackends } from './report';
 import type { DiagnosticStatus, StorageDiagnosticResult } from './types';
 
 function result(backend: DiagnosticBackend, status: DiagnosticStatus, targetBytes = GIB): StorageDiagnosticResult {
@@ -52,6 +52,9 @@ describe('compareBackends（docs の Case A〜D）', () => {
     expect(compareBackends([result('opfs', 'failed'), result('indexeddb', 'success'), prepare], GIB)).toBeNull();
     // あとで書き込みまで走った結果があれば、それを使う。
     expect(compareBackends([result('opfs', 'failed'), result('indexeddb', 'success'), prepare, result('cache', 'failed')], GIB)?.case).toBe('C');
+    // 比較に使える結果のあとの prepare の失敗は無視し、判定と同じ結果を返す。
+    const earlier = result('cache', 'success');
+    expect(comparableResultOf([earlier, prepare], 'cache', GIB)).toBe(earlier);
   });
 
   it('3 方式がそろわない・大きさが違う・中止した結果は比べない。同じ方式は最後の結果を使う', () => {
