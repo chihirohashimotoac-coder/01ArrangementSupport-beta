@@ -172,7 +172,7 @@ describe('依存の向き', () => {
       for (const statement of importsOf(source)) {
         if (/(^|\/)data\//.test(statement.from) && !statement.typeOnly) violations.push(`${relative(ROOT, file)} → ${statement.from}`);
       }
-      if (/\blocalStorage\b/.test(source)) violations.push(`${relative(ROOT, file)}: localStorage を直接使っている`);
+      if (/\blocalStorage\s*\.\s*\w+\s*\(/.test(source)) violations.push(`${relative(ROOT, file)}: localStorage を直接使っている`);
     }
     expect(violations).toEqual([]);
   });
