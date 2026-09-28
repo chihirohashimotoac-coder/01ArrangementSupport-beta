@@ -51,6 +51,7 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `src/ai/models/**` | Model Management。engine / data / storage に依存しない。**実モデルの追加は Human Approval Required** |
 | `src/ai/benchmark/**` | 開発者向け Benchmark。Evidence と応答文字列だけを扱い、engine を呼ばない。候補モデル名は `candidates.ts` にだけ書く |
 | `src/lab/**` | Developer Gate 配下の AI MODEL LAB。engine を**呼ぶだけ**で Evidence を作る。App.tsx から動的 import でだけ読む |
+| `src/storageDiagnostics/**` | Lab の BROWSER STORAGE DIAGNOSTICS。保存 API を操作するのは `browserAdapters.ts` だけで、対象は `01as-beta-storage-diagnostic` の名前だけ。WebLLM・engine・ai・storage に依存しない。`src/lab/**` からだけ読む（`docs/BROWSER_STORAGE_DIAGNOSTICS.md`） |
 | `src/storage/**` | キーは必ず `namespacedKey()`（`01as-beta:`）で作る。Production の `oas.*` に触れない |
 | `src/config/releaseChannel.ts` | Beta の識別子（PWA 名・保存名前空間・cacheId）。変えると Production と衝突し得る |
 

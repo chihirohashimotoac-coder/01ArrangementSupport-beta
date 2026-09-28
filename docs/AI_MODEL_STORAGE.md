@@ -234,6 +234,14 @@ OPFS で再試行できます（保存方式を OPFS に切り替え、確認の
 
 ---
 
+### 7.2 OPFS でも QuotaExceededError になるとき（PR #4）
+
+Cache API・OPFS の両方で `QuotaExceededError` になった場合は、WebLLM を使わずに保存 API 自体へどこまで書けるかを
+AI MODEL LAB の **BROWSER STORAGE DIAGNOSTICS** で測る（OPFS / IndexedDB / Cache API を同じ大きさで比較）。
+手順と結果の読み方（Case A〜D）は `docs/BROWSER_STORAGE_DIAGNOSTICS.md`。
+
+---
+
 ## 8. 既知の制約
 
 - 保存場所の名前は WebLLM / tvmjs 側で固定（Cache API・IndexedDB は `webllm/model`・`webllm/config`・`webllm/wasm`、
@@ -241,6 +249,8 @@ OPFS で再試行できます（保存方式を OPFS に切り替え、確認の
 - 書きかけ（取得途中で失敗）のモデルは「未ダウンロード」と表示され、「モデルを削除」は出ない（WebLLM の
   存在確認はすべてのファイルがそろったときだけ「ある」とするため）。残ったファイルは次の Download で再利用される。
   全体を消す処理（OPFS root の削除・`caches.delete`・`indexedDB.deleteDatabase`・Clear-Site-Data）は持たない。
+  （BROWSER STORAGE DIAGNOSTICS は `caches.delete` などを使うが、対象は診断用の `01as-beta-storage-diagnostic` だけで、
+  モデルの保存領域には触れない。`docs/BROWSER_STORAGE_DIAGNOSTICS.md`）
 - OPFS の中のファイル名・記録の形式（`<sha256(url)>.bin` / `.record.json`）は WebLLM 0.2.85（tvmjs）の実装に依存する。
   版を変えると形式が変わる可能性があり、そのときはサイズが unknown になる（誤った値は出さない）。
 - IndexedDB のモデル単位のサイズは unknown。

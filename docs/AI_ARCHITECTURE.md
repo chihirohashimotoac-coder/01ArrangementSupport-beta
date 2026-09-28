@@ -60,6 +60,7 @@ Active Local Model（activeModelId のモデル）       … 利用者が導入�
 | `src/ai/index.ts` | 公開 API。画面・将来の Coach はここからだけ import する |
 | `src/ai/benchmark/**` | 開発者向け Benchmark（候補・prompt・自動検証・計測・export・端末確認・Runtime）。11 節 |
 | `src/lab/**` | 開発者向け AI MODEL LAB（Developer Gate 配下）とデータセットの定義。11 節 |
+| `src/storageDiagnostics/**` | Lab の BROWSER STORAGE DIAGNOSTICS（WebLLM を使わずに OPFS / IndexedDB / Cache API の書き込み量を測る）。`docs/BROWSER_STORAGE_DIAGNOSTICS.md` |
 
 巨大な `AiManager` クラスは作らず、純粋関数と小さな interface に分けています。
 
