@@ -13,7 +13,7 @@ import { buildDecisionEvidence } from '../evidence';
 import { BASELINE_CANDIDATE, BENCHMARK_CANDIDATES, WEBLLM_CONFIG_VERSION, candidateById } from './candidates';
 import { assembleDataset } from './dataset';
 import { judgeCompatibility, probeDevice, type DeviceReport } from './device';
-import { buildJsonExport, buildRatingCsv, csvCell, sanitizeRatings, summarizeRatings } from './export';
+import { buildJsonExport, buildRatingCsv, csvCell, datasetMatchingRun, sanitizeRatings, summarizeRatings } from './export';
 import { distributionOf, percentile, summarizeRun } from './metrics';
 import { buildPrompt, PROMPT_VERSION_LABEL, SYSTEM_PROMPT } from './prompt';
 import { runBenchmark } from './runner';
@@ -222,6 +222,14 @@ describe('export と人手評価', () => {
     expect(Object.keys(json.ratings)).toEqual([run.results[0].responseId]);
   });
 
+  it('run と ID・版・指紋が違うデータセットは export に付けない', async () => {
+    const run = await sampleRun();
+    const other = { ...smallDataset(), fingerprint: 'ffffffffffffffff' };
+    expect(datasetMatchingRun(other, run)).toBeNull();
+    expect(buildJsonExport([run], {}, other).dataset).toBeNull();
+    expect(datasetMatchingRun(smallDataset(), run)?.fingerprint).toBe(run.datasetFingerprint);
+  });
+
   it('壊れた評価は捨て、平均は評価済みだけで出す', async () => {
     const run = await sampleRun();
     const [a, b] = run.results.map((result) => result.responseId);
@@ -416,6 +424,15 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
     expect(calls).toContain('reset');
     expect(record).toMatchObject({ promptTokens: 50, outputTokens: 8, runtimeDecodeTokensPerSecond: 42, finishReason: 'stop' });
     expect(record.timeToFirstVisibleTokenMs).toBeGreaterThan(record.timeToFirstTokenMs ?? Infinity);
+  });
+
+  it('削除は対象モデル単位で、ほかのモデルのキャッシュを消さない', async () => {
+    const cached = new Set(['fixture-model-id', 'other-model-id']);
+    const { module, calls } = fakeModule(cached);
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, cacheStorage: null });
+    await runtime.deleteCache(FAKE_CANDIDATE);
+    expect(calls).toEqual(['delete:fixture-model-id']);
+    expect([...cached]).toEqual(['other-model-id']);
   });
 
   it('削除は WebLLM のキャッシュ削除だけを呼ぶ（利用者データに触れない）', async () => {

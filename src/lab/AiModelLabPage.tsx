@@ -19,6 +19,7 @@ import {
   HUMAN_RATING_LABEL_JA,
   buildJsonExport,
   buildRatingCsv,
+  datasetMatchingRun,
   isRatingValue,
   summarizeRatings,
   type HumanRating,
@@ -140,6 +141,16 @@ export default function AiModelLabPage({
   const [message, setMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Lab を離れたら、進行中の取得・Benchmark を中止し、読み込んだモデルを解放する
+  // （画面の外で数 GB の取得が続いたり、WebGPU の資源が残ったりしないように）。
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      for (const item of runtimes) void item.unload().catch(() => {});
+    },
+    [runtimes],
+  );
+
   const candidate = candidates.find((item) => item.id === candidateId) ?? candidates[0];
   const runtime = runtimes.find((item) => item.supports(candidate)) ?? null;
   const compatibility = judgeCompatibility(candidate, device);
@@ -202,6 +213,9 @@ export default function AiModelLabPage({
         const size = await runtime.cachedSizeBytes(candidate);
         setMeasuredSize((state) => ({ ...state, [candidate.id]: size }));
       } catch (error) {
+        // 失敗した Runtime は、前に読み込んでいたモデルも外れていることがある（WebLLM の reload 失敗）。
+        // 画面の「読み込み済み」を残すと、Run が読み込みを飛ばして全件 not-loaded になるので解除する。
+        if (loaded?.runtimeId === runtime.id) setLoaded(null);
         setMessage(`読み込めませんでした: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setBusy('idle');
@@ -293,9 +307,13 @@ export default function AiModelLabPage({
         </button>
         <h1>AI MODEL LAB</h1>
         <p className="lab__note">
-          開発者向け（Developer Gate）。ローカル AI モデルを<strong>同じ 01AS Evidence で比較し、採用判断の材料を集める</strong>
-          ための画面です。ここでモデルを採用することはありません。
+          ローカル AI モデルを<strong>同じ 01AS Evidence で比較し、採用判断の材料を集める</strong>ための画面です。
         </p>
+        <ul className="lab__notice" data-testid="lab-experimental-notice">
+          <li>開発者向けの実験機能です。01AS のアレンジ判断には使いません。</li>
+          <li>モデルを使うと、端末へ大容量のデータ（数百 MB〜数 GB）をダウンロードします。ダウンロードは確認のあとだけ行います。</li>
+          <li>どのモデルを正式に採用するかは、まだ決まっていません。</li>
+        </ul>
       </header>
 
       {message && (
@@ -586,8 +604,10 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
   }
   const summary = summarizeRun(selectedRun);
   const human = summarizeRatings(selectedRun.results, ratings);
+  // 保存済みの古い run に、いまのデータセット（別の版・指紋）を付けて export しない。
+  const datasetForRun = datasetMatchingRun(dataset, selectedRun);
   const stamp = selectedRun.startedAt.replace(/[:.]/g, '-');
-  const titleOf = (caseId: string) => dataset?.cases.find((item) => item.id === caseId)?.titleJa ?? caseId;
+  const titleOf = (caseId: string) => datasetForRun?.cases.find((item) => item.id === caseId)?.titleJa ?? caseId;
 
   return (
     <section className="lab__section" data-testid="lab-results">
@@ -689,7 +709,7 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
           type="button"
           data-testid="lab-export-json"
           onClick={() =>
-            download(`01as-ai-benchmark-${stamp}.json`, JSON.stringify(buildJsonExport([selectedRun], ratings, dataset), null, 2), 'application/json')}
+            download(`01as-ai-benchmark-${stamp}.json`, JSON.stringify(buildJsonExport([selectedRun], ratings, datasetForRun), null, 2), 'application/json')}
         >
           Export JSON
         </button>

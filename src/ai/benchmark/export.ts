@@ -109,21 +109,34 @@ export interface BenchmarkExport {
   readonly ratingScale: Readonly<Record<HumanRatingKey, string>>;
 }
 
+/**
+ * run を作ったデータセットと ID・版・指紋が一致するときだけ返す。
+ * 保存済みの古い run に、別の版・指紋のデータセット（Evidence・promptHash）を付けて export しないため。
+ */
+export function datasetMatchingRun(dataset: BenchmarkDataset | null, run: BenchmarkRun): BenchmarkDataset | null {
+  if (dataset === null) return null;
+  return dataset.id === run.datasetId && dataset.version === run.datasetVersion && dataset.fingerprint === run.datasetFingerprint
+    ? dataset
+    : null;
+}
+
 export function buildJsonExport(
   runs: readonly BenchmarkRun[],
   ratings: HumanRatings,
   dataset: BenchmarkDataset | null,
 ): BenchmarkExport {
+  // 渡されたデータセットが run のものと違えば入れない（run が 1 件のときの呼び出しを想定した安全策）。
+  const matched = runs.length > 0 && runs.every((run) => datasetMatchingRun(dataset, run) !== null) ? dataset : null;
   const responseIds = new Set(runs.flatMap((run) => run.results.map((result) => result.responseId)));
   return {
     schema: '01as-ai-benchmark-export',
     schemaVersion: 1,
-    dataset: dataset
+    dataset: matched
       ? {
-          id: dataset.id,
-          version: dataset.version,
-          fingerprint: dataset.fingerprint,
-          cases: dataset.cases.map((item) => ({
+          id: matched.id,
+          version: matched.version,
+          fingerprint: matched.fingerprint,
+          cases: matched.cases.map((item) => ({
             id: item.id,
             category: item.category,
             tags: item.tags,

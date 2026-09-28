@@ -205,3 +205,13 @@
   color: var(--danger);
   font-weight: 700;
 }
+
+.lab__notice {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem 0.5rem 1.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}

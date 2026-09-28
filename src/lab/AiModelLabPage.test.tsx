@@ -7,6 +7,7 @@
  * - WebGPU が無い端末では Download できない（UNSUPPORTED）
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BASELINE_CANDIDATE } from '../ai/benchmark/candidates';
@@ -14,7 +15,7 @@ import { assembleDataset } from '../ai/benchmark/dataset';
 import type { DeviceReport } from '../ai/benchmark/device';
 import { createMockRuntime, type MockRuntime } from '../ai/benchmark/runtimes/mockRuntime';
 import { createTemplateRuntime } from '../ai/benchmark/runtimes/templateRuntime';
-import type { BenchmarkCandidate } from '../ai/benchmark/types';
+import { BenchmarkRuntimeError, type BenchmarkCandidate, type BenchmarkRuntime } from '../ai/benchmark/types';
 import { buildDecisionEvidence } from '../ai/evidence';
 import { suggestFor } from '../engine/recovery/suggest';
 import { TRAINING_HISTORY_KEY } from '../storage/trainingHistory';
@@ -75,18 +76,20 @@ const USER_DATA = {
   [PREFERENCES_KEY]: '{"version":1}',
 };
 
-function renderLab(options: { mock?: MockRuntime; device?: DeviceReport } = {}) {
-  const mock = options.mock ?? createMockRuntime({ id: 'mock' });
-  render(
+function renderLab<R extends BenchmarkRuntime = MockRuntime>(
+  options: { mock?: R; device?: DeviceReport; candidates?: BenchmarkCandidate[] } = {},
+): R & { unmount: () => void } {
+  const mock = (options.mock ?? createMockRuntime({ id: 'mock' })) as R;
+  const view = render(
     <AiModelLabPage
       onBack={() => {}}
       runtimes={[createTemplateRuntime(() => 0), mock]}
-      candidates={[FIXTURE, BASELINE_CANDIDATE]}
+      candidates={options.candidates ?? [FIXTURE, BASELINE_CANDIDATE]}
       buildDataset={buildDataset}
       probe={async () => options.device ?? DEVICE}
     />,
   );
-  return mock;
+  return Object.assign(mock, { unmount: view.unmount });
 }
 
 beforeEach(() => {
@@ -168,6 +171,51 @@ describe('AI MODEL LAB', () => {
     await waitFor(() => expect(screen.getByTestId('lab-run')).toBeEnabled());
     await user.click(screen.getByTestId('lab-run'));
     expect(await screen.findByTestId('metric-validation')).toHaveTextContent('2 / 2');
+  });
+
+  it('開発者向けの実験機能であること・大容量のダウンロード・正式採用は未定であることを示す', async () => {
+    renderLab();
+    const notice = await screen.findByTestId('lab-experimental-notice');
+    expect(notice).toHaveTextContent('開発者向けの実験機能');
+    expect(notice).toHaveTextContent('大容量のデータ');
+    expect(notice).toHaveTextContent('正式に採用するかは、まだ決まっていません');
+  });
+
+  it('Lab を離れると、読み込んだモデルを解放する', async () => {
+    const user = userEvent.setup();
+    const mock = createMockRuntime({ id: 'mock', cachedCandidateIds: ['fixture-model'] });
+    const unload = vi.spyOn(mock, 'unload');
+    const view = renderLab({ mock });
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(mock.loadedCandidateId()).toBe('fixture-model'));
+    view.unmount();
+    expect(unload).toHaveBeenCalled();
+    await waitFor(() => expect(mock.loadedCandidateId()).toBeNull());
+  });
+
+  it('読み込みに失敗したら「読み込み済み」を解除する（前のモデルで Run できる状態を残さない）', async () => {
+    const user = userEvent.setup();
+    const second: BenchmarkCandidate = { ...FIXTURE, id: 'second-model', displayName: 'Second Model', runtimeModelId: 'second-id' };
+    const mock = createMockRuntime({ id: 'mock', cachedCandidateIds: ['fixture-model', 'second-model'] });
+    const failing: BenchmarkRuntime = {
+      ...mock,
+      load: async (candidate, loadOptions) => {
+        if (candidate.id === 'second-model') {
+          await mock.unload();
+          throw new BenchmarkRuntimeError('generation-failed', 'device lost');
+        }
+        return mock.load(candidate, loadOptions);
+      },
+    };
+    renderLab({ mock: failing, candidates: [FIXTURE, second, BASELINE_CANDIDATE] });
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    await user.selectOptions(screen.getByTestId('lab-model-select'), 'second-model');
+    await user.click(await screen.findByTestId('lab-load'));
+    expect(await screen.findByTestId('lab-message')).toHaveTextContent('読み込めませんでした');
+    await user.selectOptions(screen.getByTestId('lab-model-select'), 'fixture-model');
+    expect(screen.getByTestId('lab-model-status')).not.toHaveTextContent('読み込み済み');
+    expect(screen.getByTestId('lab-run')).toBeDisabled();
   });
 
   it('WebGPU が無い端末では UNSUPPORTED とし、Download できない', async () => {
