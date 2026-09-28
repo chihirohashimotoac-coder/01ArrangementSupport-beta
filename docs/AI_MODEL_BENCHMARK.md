@@ -115,6 +115,8 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 
 - モデルの保存方式は **OPFS が既定**です（PR #3。WebLLM 0.2.85 の既定の Cache API で `QuotaExceededError` が出たため）。
   方針・失敗の分類・実機での再検証手順は `docs/AI_MODEL_STORAGE.md`。
+- OPFS でも `QuotaExceededError` になる場合の切り分け（WebLLM を使わずに OPFS / IndexedDB / Cache API へ実際に書く
+  BROWSER STORAGE DIAGNOSTICS）は `docs/BROWSER_STORAGE_DIAGNOSTICS.md`（PR #4）。
 - WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`。OPFS では `tvmjs-opfs-store/webllm/*`）は、
   01AS 専用名へ変更できません。
   同じ origin（`chihirohashimotoac-coder.github.io`）の別のアプリが WebLLM を使うと、`webllm/*` を共有する可能性があります。

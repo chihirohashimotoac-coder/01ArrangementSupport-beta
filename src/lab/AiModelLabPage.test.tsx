@@ -24,7 +24,8 @@ import { suggestFor } from '../engine/recovery/suggest';
 import { TRAINING_HISTORY_KEY } from '../storage/trainingHistory';
 import { SIMULATION_SETTINGS_KEY } from '../storage/simulationSettings';
 import { PREFERENCES_KEY } from '../storage/preferences';
-import AiModelLabPage from './AiModelLabPage';
+import { createFakeAdapter } from '../storageDiagnostics/fakeAdapter';
+import AiModelLabPage, { type AiModelLabPageProps } from './AiModelLabPage';
 import { BENCHMARK_RATINGS_KEY, BENCHMARK_RUNS_KEY } from './labStorage';
 
 const FIXTURE: BenchmarkCandidate = {
@@ -89,6 +90,7 @@ function renderLab<R extends BenchmarkRuntime = MockRuntime>(
     candidates?: BenchmarkCandidate[];
     probeStorage?: () => Promise<StorageStatus>;
     requestPersist?: () => Promise<boolean | null>;
+    storageDiagnostics?: AiModelLabPageProps['storageDiagnostics'];
   } = {},
 ): R & { unmount: () => void } {
   const mock = (options.mock ?? createMockRuntime({ id: 'mock' })) as R;
@@ -102,6 +104,7 @@ function renderLab<R extends BenchmarkRuntime = MockRuntime>(
       storageSupport={ALL_STORAGE}
       probeStorage={options.probeStorage ?? (async () => STATUS)}
       requestPersist={options.requestPersist ?? (async () => false)}
+      storageDiagnostics={options.storageDiagnostics}
     />,
   );
   return Object.assign(mock, { unmount: view.unmount });
@@ -418,6 +421,44 @@ describe('AI MODEL LAB', () => {
       await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('未ダウンロード'));
     }
     expect(snapshot()).toEqual(before);
+  });
+  it('BROWSER STORAGE DIAGNOSTICS を表示し、診断の実行中はモデルの取得を始めない（WebLLM・モデルを使わない）', async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | null = null;
+    const opfs = createFakeAdapter({
+      backend: 'opfs',
+      beforeWrite: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const mock = renderLab({
+      storageDiagnostics: {
+        adapters: { opfs, indexeddb: createFakeAdapter({ backend: 'indexeddb' }), cache: createFakeAdapter({ backend: 'cache' }) },
+        probeStorage: async () => STATUS,
+        testMode: true,
+      },
+    });
+    const section = await screen.findByTestId('lab-storage-diagnostics');
+    expect(within(section).getByText('BROWSER STORAGE DIAGNOSTICS')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('lab-download')).toBeEnabled());
+
+    await user.click(screen.getByTestId('diag-start-opfs'));
+    await waitFor(() => expect(release).not.toBeNull());
+    expect(screen.getByTestId('lab-download')).toBeDisabled();
+    expect(screen.getByTestId('lab-storage-backend-select')).toBeDisabled();
+
+    for (let index = 0; index < 4; index += 1) {
+      await waitFor(() => expect(release).not.toBeNull());
+      const next = release as unknown as () => void;
+      release = null;
+      next();
+    }
+    await waitFor(() => expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('OPFS 4 MiB書き込み成功'));
+    await waitFor(() => expect(screen.getByTestId('lab-download')).toBeEnabled());
+    // 診断はモデルの Runtime を呼ばない。利用者データも変えない。
+    expect(mock.log).toEqual([]);
+    for (const [key, value] of Object.entries(USER_DATA)) expect(window.localStorage.getItem(key)).toBe(value);
   });
 });
 

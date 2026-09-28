@@ -14,6 +14,8 @@
  *   方式ごとに行う。失敗しても別の方式へ自動では切り替えない（`docs/AI_MODEL_STORAGE.md`）
  * - 取得・読み込みの失敗は区分（quota-exceeded など）と診断情報（保存方式・name・message・
  *   origin の usage / quota・進み具合）を画面に出し、JSON で保存できる
+ * - BROWSER STORAGE DIAGNOSTICS（`StorageDiagnosticsSection`）は WebLLM を使わずに保存方式ごとの
+ *   書き込み量を測る。診断の実行中はモデルの取得・読み込みを始めない（測定がずれるため）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BENCHMARK_CANDIDATES, BASELINE_CANDIDATE_ID } from '../ai/benchmark/candidates';
@@ -67,6 +69,7 @@ import {
 } from '../ai/benchmark/types';
 import { coreDataset } from './benchmarkDataset';
 import { deleteRun, loadRatings, loadRuns, saveRating, saveRun } from './labStorage';
+import StorageDiagnosticsSection, { type StorageDiagnosticsSectionProps } from './StorageDiagnosticsSection';
 import './AiModelLabPage.css';
 
 type CacheState = 'unknown' | 'checking' | 'cached' | 'not-cached';
@@ -90,6 +93,8 @@ export interface AiModelLabPageProps {
   readonly probeStorage?: () => Promise<StorageStatus>;
   /** 永続化の要求（best-effort）。既定は `navigator.storage.persist()`。 */
   readonly requestPersist?: () => Promise<boolean | null>;
+  /** BROWSER STORAGE DIAGNOSTICS へ渡す（テストで Fake Adapter を使う）。既定はブラウザの保存 API。 */
+  readonly storageDiagnostics?: Pick<StorageDiagnosticsSectionProps, 'adapters' | 'probeStorage' | 'requestPersist' | 'testMode'>;
 }
 
 const defaultRuntimes = (backend: ModelStorageBackend | null): readonly BenchmarkRuntime[] =>
@@ -171,6 +176,7 @@ export default function AiModelLabPage({
   storageSupport: injectedStorageSupport,
   probeStorage = probeStorageStatus,
   requestPersist = requestPersistentStorage,
+  storageDiagnostics,
 }: AiModelLabPageProps) {
   const storageSupport = useMemo(() => injectedStorageSupport ?? detectModelStorageSupport(), [injectedStorageSupport]);
   const storageChoice = useMemo(() => chooseModelStorageBackend(storageSupport), [storageSupport]);
@@ -186,6 +192,9 @@ export default function AiModelLabPage({
   const [measuredSize, setMeasuredSize] = useState<Record<string, number | null>>({});
   const [loaded, setLoaded] = useState<{ candidateId: string; runtimeId: string; load: LoadRecord } | null>(null);
   const [busy, setBusy] = useState<Busy>('idle');
+  /** BROWSER STORAGE DIAGNOSTICS の実行中。モデルの取得などと同時に走らせない。 */
+  const [diagnosticRunning, setDiagnosticRunning] = useState(false);
+  const labBusy = busy !== 'idle' || diagnosticRunning;
   const [progress, setProgress] = useState<{ fraction: number; text: string } | null>(null);
   const [confirmDownload, setConfirmDownload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -463,7 +472,7 @@ export default function AiModelLabPage({
     : MODEL_STORAGE_BACKENDS.filter((backend) => backend !== runtimeBackend && presence[backend] === true);
   const runnable = candidate.labAvailability === 'RUNNABLE' && runtime !== null;
   const needsModel = candidate.runtime !== 'deterministic';
-  const canRun = runnable && dataset !== null && busy === 'idle' && compatibility.verdict !== 'UNSUPPORTED' &&
+  const canRun = runnable && dataset !== null && !labBusy && compatibility.verdict !== 'UNSUPPORTED' &&
     (!needsModel || isLoaded);
 
   const rate = (responseId: string, rating: HumanRating) => setRatings(saveRating(responseId, rating));
@@ -501,7 +510,7 @@ export default function AiModelLabPage({
               <button
                 type="button"
                 data-testid="lab-retry-opfs"
-                disabled={busy !== 'idle'}
+                disabled={labBusy}
                 onClick={() => {
                   changeStorageBackend('opfs');
                   setFailure(null);
@@ -611,7 +620,7 @@ export default function AiModelLabPage({
             <select
               data-testid="lab-storage-backend-select"
               value={storageBackend}
-              disabled={busy !== 'idle'}
+              disabled={labBusy}
               onChange={(event) => {
                 if (isModelStorageBackend(event.target.value)) changeStorageBackend(event.target.value);
               }}
@@ -642,6 +651,8 @@ export default function AiModelLabPage({
         </p>
       </section>
 
+      <StorageDiagnosticsSection {...storageDiagnostics} disabled={busy !== 'idle'} onRunningChange={setDiagnosticRunning} />
+
       <section className="lab__section" data-testid="lab-model">
         <h2>MODEL</h2>
         <label className="lab__field">
@@ -649,7 +660,7 @@ export default function AiModelLabPage({
           <select
             data-testid="lab-model-select"
             value={candidate.id}
-            disabled={busy !== 'idle'}
+            disabled={labBusy}
             onChange={(event) => {
               setCandidateId(event.target.value);
               setConfirmDownload(false);
@@ -739,19 +750,19 @@ export default function AiModelLabPage({
               <button
                 type="button"
                 data-testid="lab-download"
-                disabled={busy !== 'idle' || compatibility.verdict === 'UNSUPPORTED'}
+                disabled={labBusy || compatibility.verdict === 'UNSUPPORTED'}
                 onClick={() => setConfirmDownload(true)}
               >
                 Download
               </button>
             )}
             {!isLoaded && cache === 'cached' && (
-              <button type="button" data-testid="lab-load" disabled={busy !== 'idle'} onClick={() => void load(false)}>
+              <button type="button" data-testid="lab-load" disabled={labBusy} onClick={() => void load(false)}>
                 Load
               </button>
             )}
             {isLoaded && (
-              <button type="button" data-testid="lab-unload" disabled={busy !== 'idle'} onClick={() => void unload()}>
+              <button type="button" data-testid="lab-unload" disabled={labBusy} onClick={() => void unload()}>
                 Unload
               </button>
             )}
@@ -760,7 +771,7 @@ export default function AiModelLabPage({
                 type="button"
                 className="lab__danger"
                 data-testid="lab-delete-model"
-                disabled={busy !== 'idle'}
+                disabled={labBusy}
                 onClick={() => setConfirmDelete(true)}
               >
                 モデルを削除
@@ -798,7 +809,7 @@ export default function AiModelLabPage({
               01AS の利用者データとは別の場所で、「モデルを削除」で消せます（この保存方式のこのモデルだけを消します）。
             </p>
             <div className="lab__actions">
-              <button type="button" data-testid="lab-download-start" onClick={() => void load(true)}>
+              <button type="button" data-testid="lab-download-start" disabled={labBusy} onClick={() => void load(true)}>
                 ダウンロードを開始
               </button>
               <button type="button" onClick={() => setConfirmDownload(false)}>
@@ -815,7 +826,7 @@ export default function AiModelLabPage({
               ほかの保存方式のモデル・TRAINING 履歴・SIMULATION 設定・設定・Benchmark の結果・人手評価は削除しません。
             </p>
             <div className="lab__actions">
-              <button type="button" className="lab__danger" data-testid="lab-delete-start" onClick={() => void removeCache()}>
+              <button type="button" className="lab__danger" data-testid="lab-delete-start" disabled={labBusy} onClick={() => void removeCache()}>
                 削除する
               </button>
               <button type="button" onClick={() => setConfirmDelete(false)}>
@@ -848,7 +859,7 @@ export default function AiModelLabPage({
         <div className="lab__options">
           <label className="lab__field">
             <span>ケース</span>
-            <select value={scope} onChange={(event) => setScope(event.target.value as 'all' | 'quick')} disabled={busy !== 'idle'}>
+            <select value={scope} onChange={(event) => setScope(event.target.value as 'all' | 'quick')} disabled={labBusy}>
               <option value="all">すべて</option>
               <option value="quick">クイック（各カテゴリ 2 件）</option>
             </select>
@@ -860,7 +871,7 @@ export default function AiModelLabPage({
                 data-testid="lab-thinking"
                 value={thinking}
                 onChange={(event) => setThinking(event.target.value as 'off' | 'on')}
-                disabled={busy !== 'idle'}
+                disabled={labBusy}
               >
                 <option value="off">OFF（01AS の既定）</option>
                 <option value="on">ON（比較用）</option>
