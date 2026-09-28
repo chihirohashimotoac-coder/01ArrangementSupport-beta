@@ -68,7 +68,9 @@ AI の出力は文字列（説明文）だけです。型の上でも、AI の�
 
 | 状況 | 扱い |
 | --- | --- |
-| feature flag OFF / Provider 未設定 | 決定論的な説明（`disabled`） |
+| モデル未導入・未選択 | 従来の 01AS の説明（`no-active-model`） |
+| Developer Gate（開発者向け kill switch）が閉 | 決定論的な説明（`developer-gate-closed`） |
+| 選択中のモデルの Runtime が無い・作成失敗 | Provider 無しとして従来の説明（`no-active-model`） |
 | Provider がその機能に未対応 | 決定論的な説明（`unsupported`） |
 | 読み込み失敗・ブラウザ非対応・例外 | 決定論的な説明（`error`） |
 | 応答が時間内に返らない（既定 8 秒） | 中断を通知し、決定論的な説明（`timeout`） |
@@ -123,6 +125,9 @@ AI にも決定論的な説明にも**事実を補わせず**、`{ status: 'insu
 - 学習履歴は**集計値だけ**を渡し、記録の時刻・ID・回答内容は渡しません。
 - SIMULATION の着弾座標・乱数・暗算の入力値は渡しません。
 - 個人情報・API key・token・private endpoint をリポジトリへ置きません（公開リポジトリ）。
+- モデルの導入は利用者が**明示的に**ダウンロードしたときだけ行います（自動取得しない）。
+- モデルのファイルは利用者データと別の保存領域（`01as-beta-ai-model:`）に置き、
+  モデルを削除しても設定・学習履歴は消えません（`docs/AI_ARCHITECTURE.md` 8.4 節）。
 - 現時点で通信する AI Provider は存在しません。`src/ai/**` は通信 API を使いません
   （`src/ai/architecture.test.ts` で検査）。
 
@@ -148,6 +153,7 @@ AI の説明を作る過程でデータの問題に気づいても**修正せず
 - WebGPU 推論の導入
 - 外部 AI API（OpenAI / Claude / Gemini 等）への接続・API key の導入
 - backend（Cloudflare Worker / Supabase / Firebase 等）の追加
-- AI 機能を既定 ON にすること、AI の説明をユーザーへ公開すること
+- Model Catalog へ実モデルを追加すること、実際のモデルダウンロード処理を入れること
+- Developer Gate を既定で開けること、AI の説明をユーザーへ公開すること
 - Evidence の範囲を広げること（特に個人の履歴・自由入力を渡すこと）
 - この文書の AI MUST NOT / AI MAY の変更

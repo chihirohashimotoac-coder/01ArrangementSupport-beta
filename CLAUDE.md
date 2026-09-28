@@ -48,6 +48,7 @@ Claude Code はこのリポジトリの**主実装担当**です。
 | `SIGMA_ANCHORS`（`accuracy.ts`） | 戦術データではない。`npm run audit:simulation -- --solve` で逆算し直して差し替える |
 | `data/source/*.xlsx` | 一次資料。**変更禁止** |
 | `src/ai/**` | Beta の AI 説明層。engine の結果を読むだけ。**判断・ランキング・再探索を書かない** |
+| `src/ai/models/**` | Model Management。engine / data / storage に依存しない。**実モデルの追加は Human Approval Required** |
 | `src/storage/**` | キーは必ず `namespacedKey()`（`01as-beta:`）で作る。Production の `oas.*` に触れない |
 | `src/config/releaseChannel.ts` | Beta の識別子（PWA 名・保存名前空間・cacheId）。変えると Production と衝突し得る |
 
@@ -69,6 +70,10 @@ SEGMENT_DIFFICULTY・SETUP の重み・GRADE_THRESHOLDS など）が記録され
 - Provider が失敗・タイムアウト・不正応答・未対応でも、決定論的な fallback
   （`templateProvider`）で必ず説明を返し、アプリ本体を止めない。
 - Evidence が足りないときは補完・推測せず `insufficient-evidence` として返す。
+- AI を使えるかどうかは「Developer Gate（`VITE_AI_FEATURES`、開発者向け kill switch）＋導入済みで選択中の
+  モデル（`activeModelId`）」で決まる。利用者向けの AI ON / OFF 設定として書かない。
+- モデル未導入・未選択なら従来の 01AS として動く。選択中のモデルを削除したら `activeModelId` を null に戻す。
+- モデルのファイル（`01as-beta-ai-model:`）と利用者データ（`01as-beta:oas.*`）を混ぜない。
 - モデル・推論ライブラリ（WebLLM / transformers.js / llama.cpp 等）・外部 AI API・API key・
   backend は、人間の承認なしに追加しない。
 

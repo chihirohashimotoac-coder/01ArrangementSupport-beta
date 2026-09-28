@@ -171,8 +171,13 @@ engine evidence を根拠にした AI Coach。
   `src/engine/**`・`src/domain/**`・`src/data/**`・`src/storage/**` から `src/ai/**` を import しない。
 - UI から直接モデルを呼ばない。必ず `src/ai/explain.ts` の安全な呼び出し
   （検証・タイムアウト・fallback 付き）を通す。
-- AI 機能は feature flag（`VITE_AI_FEATURES`、既定 OFF）で独立して ON / OFF できること。
-  OFF のときは Production と同じ挙動であること。
+- AI 機能を使えるかどうかは **利用者がローカル AI モデルを導入・選択しているか**で決まる
+  （`src/ai/models/`）。モデル未導入・未選択なら従来の 01AS として動作すること。
+  利用者向けの「AI ON / OFF」スイッチを主要な操作にしない。
+- `VITE_AI_FEATURES` は**開発者向けの experimental kill switch**（Developer Gate、既定は閉）。
+  利用者向けの設定ではない。
+- 具体的なモデル名は Model Catalog のデータにだけ書く。モデルを削除しても利用者データ
+  （設定・学習履歴・SIMULATION 設定）を消さない。
 - モデル・推論ライブラリ・外部 AI API・API key・backend を追加する PR は、
   `docs/AI_EVALUATION.md` の評価と人間の承認を経てから。
 

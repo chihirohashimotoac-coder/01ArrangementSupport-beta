@@ -85,11 +85,31 @@ Evidence は `serializeEvidence()` で固定した文字列として保存し、
 
 ---
 
-## 4. 記録する項目（モデル名に依存しない）
+## 4. Model Catalog への掲載基準（案）
+
+評価は**モデル区分（`ULTRA_LIGHT` / `LIGHT` / `STANDARD` / `QUALITY` / `EXPERIMENTAL`）ごと**に行い、
+同じ区分の候補どうしで比べます。区分ごとに求める実用性の重み付けを変えます。
+
+| 区分 | 重視する指標 | 掲載の目安（提案） |
+| --- | --- | --- |
+| `ULTRA_LIGHT` | 7・8・11・12（メモリ・取得量・Mobile・WebGPU 非依存） | 中性能 Mobile で動くこと |
+| `LIGHT` | 6（Latency） | 2 回目以降 p95 が最も短い候補 |
+| `STANDARD` | 1〜5 と 6 のバランス | 正しさを満たしたうえで Desktop・高性能 Mobile で実用的 |
+| `QUALITY` | 4・5（正しさ・自然さ） | 高性能 PC で実用的であれば、取得量は大きくてよい |
+| `EXPERIMENTAL` | 全指標を記録 | 利用者向けには `status: 'experimental'` と明示 |
+
+どの区分でも、1〜4（正しさ）と 13（Fallback）を満たさない候補はカタログへ載せません。
+カタログの `downloadSizeBytes` / `estimatedMemoryBytes` / `requirements` は、この評価で測った値を書きます
+（利用者がダウンロード前に容量・性能を比べられるようにするため）。
+
+---
+
+## 5. 記録する項目（モデル名に依存しない）
 
 | 項目 | 例 |
 | --- | --- |
 | Provider の種類 | `browser-local` / `remote` |
+| モデル区分 | `ULTRA_LIGHT` / `LIGHT` / `STANDARD` / `QUALITY` / `EXPERIMENTAL` |
 | モデルの識別子・版・量子化方式・ライセンス | 評価時点の値をそのまま記録 |
 | 実行バックエンド | WebGPU / WASM / CPU / サーバー |
 | 取得サイズ・キャッシュ先 | Cache Storage / IndexedDB（Beta の名前空間） |

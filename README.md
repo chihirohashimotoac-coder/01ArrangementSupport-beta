@@ -9,7 +9,10 @@
 > | Production リポジトリ（READ ONLY） | https://github.com/chihirohashimotoac-coder/01ArrangementSupport |
 >
 > - Beta は Production と**保存データを共有しません**（設定・学習履歴は Beta 専用。`docs/BETA.md`）。
-> - **AI 機能は実験段階**で、既定では **OFF** です。この版には AI モデルも外部 AI API も入っていません。
+> - **AI 機能は実験段階**です。**AI モデルを導入していなければ、従来の 01 Arrangement Support として動作します。**
+>   将来、ローカル AI モデルを利用者が選んでダウンロードし、使うモデルを選ぶと AI による説明・振り返りを
+>   利用できるようにする予定です（AI の ON / OFF スイッチではなく、モデルの導入・選択で決まります）。
+>   この版には AI モデルも外部 AI API も入っていません。
 > - **Decision Engine は従来どおり決定論的**です。チェックアウト・セットアップ・推奨度・Bust 判定などは
 >   すべて rule based engine が決め、**AI は判断を行いません**。AI は engine の判断を説明する役割に限定します
 >   （`docs/AI_ARCHITECTURE.md` / `docs/AI_BOUNDARIES.md`）。
@@ -49,7 +52,7 @@
 - **完全オフライン。** ログイン・バックエンド・外部 DB・生成 AI API を一切使いません。
   判断はすべて決定論的な rule based engine です。
   Beta で追加した AI 基盤（`src/ai/`）も、engine の結果を説明するための層で、
-  判断には使いません（既定 OFF・モデル未搭載）。
+  判断には使いません（現時点ではモデル未搭載のため、従来どおりの動作です）。
 
 ---
 

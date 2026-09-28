@@ -82,7 +82,7 @@ Production と Beta はどちらも `https://chihirohashimotoac-coder.github.io`
 | localStorage | **共有される** | すべてのキーに `01as-beta:` 接頭辞。`src/storage/localJson.ts` が接頭辞の無いキーの読み書き・削除を拒否する |
 | sessionStorage | 共有される（タブ単位） | 使用していない |
 | IndexedDB | 共有される | 使用していない |
-| Cache Storage | 共有される | Workbox の `cacheId: '01as-beta'` で名前を分ける。Precache 名にはスコープ URL も入る |
+| Cache Storage | 共有される | Workbox の `cacheId: '01as-beta'` で名前を分ける。Precache 名にはスコープ URL も入る。将来のローカル AI モデルは `01as-beta-ai-model:<id>` に置き、利用者データ・アプリのキャッシュと分ける（`docs/AI_ARCHITECTURE.md` 8.4 節） |
 | Service Worker | スコープ（URL 前方一致）単位 | `/01ArrangementSupport-beta/` は `/01ArrangementSupport/` で始まらないため、互いのページを制御しない |
 
 ### Storage 分離の要件
