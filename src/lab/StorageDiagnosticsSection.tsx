@@ -35,7 +35,7 @@ import {
   type DiagnosticBackend,
 } from '../storageDiagnostics/constants';
 import { buildDiagnosticExport, compareBackends, describeBrowser } from '../storageDiagnostics/report';
-import { errorMessageOf, errorNameOf, runStorageDiagnostic } from '../storageDiagnostics/runner';
+import { STALE_USAGE_ERROR_NAME, errorMessageOf, errorNameOf, runStorageDiagnostic } from '../storageDiagnostics/runner';
 import type { DiagnosticProgress, OriginStorageStatus, StorageDiagnosticResult } from '../storageDiagnostics/types';
 import { clearDiagnosticResults, loadDiagnosticResults, saveDiagnosticResults } from './labStorage';
 
@@ -75,6 +75,30 @@ function saveJson(filename: string, content: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+/**
+ * この結果のあとに、同じページで次の方式を測ってはいけない理由。
+ *
+ * - `cleanup-failed`: 診断用のデータが消せずに残っている（quota を使ったまま）
+ * - `unreclaimed`: 削除したが、Origin Usage に反映されていない（quota に数えられたまま）
+ * - `stale-usage`: 前回の残りを削除したが反映されず、書き始めの基準を決められなかった
+ */
+type BlockReason = 'cleanup-failed' | 'unreclaimed' | 'stale-usage';
+
+function blockReasonOf(result: StorageDiagnosticResult): BlockReason | null {
+  if (result.cleanup.status === 'failed') return 'cleanup-failed';
+  if (result.errorName === STALE_USAGE_ERROR_NAME) return 'stale-usage';
+  if (result.usageReclaimed === false) return 'unreclaimed';
+  return null;
+}
+
+const BLOCK_REASON_JA: Readonly<Record<BlockReason, (result: StorageDiagnosticResult) => string>> = {
+  'cleanup-failed': (result) =>
+    `診断用のデータを削除できませんでした（${result.cleanup.errorName ?? 'Error'}: ${result.cleanup.errorMessage ?? ''}）。「診断用のデータを削除」を押してください`,
+  unreclaimed: (result) =>
+    `削除した診断用のデータが、まだ Origin Usage から減っていません（${formatDiagnosticBytes(result.originUsageBefore)} → ${formatDiagnosticBytes(result.originUsageAfterCleanup)}）`,
+  'stale-usage': () => '前回のテストの残りを削除しましたが、Origin Usage にまだ反映されていないため、書き込みを始めませんでした',
+};
+
 const LEFTOVER_LABEL = (value: boolean | null | undefined): string =>
   value === undefined ? '確認中…' : value === null ? '不明' : value ? 'あり' : 'なし';
 
@@ -102,11 +126,11 @@ export default function StorageDiagnosticsSection({
   /** これまでの結果（再読み込みの前の結果を含む。古い順）。 */
   const [results, setResults] = useState<StorageDiagnosticResult[]>(() => loadDiagnosticResults());
   /**
-   * このページで測った結果のうち、削除が Origin Usage に反映されなかったもの。あれば、再読み込みするまで
-   * 次のテストを始めない（残りの分が quota に数えられ、次の方式が少なく見えるため）。
+   * このページで測った結果のうち、診断用のデータ（またはその usage）が残ったもの（`blockReasonOf`）。
+   * あれば、再読み込みするまで次のテストを始めない（残りの分が quota に数えられ、次の方式が少なく見えるため）。
    */
-  const [unreclaimedInPage, setUnreclaimedInPage] = useState<StorageDiagnosticResult[]>([]);
-  /** 反映されなかったため、測らなかった方式。 */
+  const [blockingInPage, setBlockingInPage] = useState<StorageDiagnosticResult[]>([]);
+  /** そのため、測らなかった方式。 */
   const [skipped, setSkipped] = useState<DiagnosticBackend[]>([]);
   const [progress, setProgress] = useState<DiagnosticProgress | null>(null);
   /** 実行中（キューを含む）の方式。null なら待機中。 */
@@ -123,7 +147,7 @@ export default function StorageDiagnosticsSection({
   const size = sizeOptions.find((option) => option.id === sizeId) ?? sizeOptions[0];
   const sizeLabel = formatDiagnosticBytes(size.bytes);
   const idle = running === null && !cleaning;
-  const needsReload = unreclaimedInPage.length > 0;
+  const needsReload = blockingInPage.length > 0;
   const canStart = idle && !disabled && !needsReload;
 
   useEffect(() => {
@@ -201,9 +225,10 @@ export default function StorageDiagnosticsSection({
             return next;
           });
           setRevision((value) => value + 1);
-          if (result.usageReclaimed === false) {
-            // 削除が反映されないまま次の方式を測ると、その方式の結果がずれる（Case を誤る）。残りは測らない。
-            setUnreclaimedInPage((items) => [...items, result]);
+          if (blockReasonOf(result) !== null) {
+            // 診断用のデータ（またはその usage）が残ったまま次の方式を測ると、その方式の結果がずれる（Case を誤る）。
+            // 残りは測らない。
+            setBlockingInPage((items) => [...items, result]);
             setSkipped(backends.slice(position + 1).filter((item) => adapters[item].isAvailable()));
             break;
           }
@@ -370,20 +395,22 @@ export default function StorageDiagnosticsSection({
 
       {needsReload && (
         <div className="lab__message lab__failure" role="status" data-testid="diag-unreclaimed">
-          <p>
-            削除した診断用のデータが、まだ Origin Usage から減っていません（
-            {unreclaimedInPage
-              .map((item) => `${DIAGNOSTIC_BACKEND_LABEL[item.backend]}: ${formatDiagnosticBytes(item.originUsageBefore)} → ${formatDiagnosticBytes(item.originUsageAfterCleanup)}`)
-              .join(' / ')}
-            ）。Chromium では削除（特に Cache API）が、ページを再読み込みするまで usage に反映されないことがあります。
-          </p>
+          <ul>
+            {blockingInPage.map((item) => (
+              <li key={`${item.backend}-${item.startedAt}`}>
+                {DIAGNOSTIC_BACKEND_LABEL[item.backend]}: {BLOCK_REASON_JA[blockReasonOf(item) ?? 'unreclaimed'](item)}
+              </li>
+            ))}
+          </ul>
+          <p>Chromium では削除（特に Cache API）が、ページを再読み込みするまで usage に反映されないことがあります。</p>
           {skipped.length > 0 && (
             <p data-testid="diag-skipped">
-              このまま測ると容量が少なく見えるため、{skipped.map((item) => DIAGNOSTIC_BACKEND_LABEL[item]).join(' / ')} は測りませんでした。
+              診断用のデータ（またはその usage）が残ったまま測ると容量が少なく見えるため、{skipped.map((item) => DIAGNOSTIC_BACKEND_LABEL[item]).join(' / ')} は測りませんでした。
             </p>
           )}
           <p>
-            ページを再読み込みしてから、まだ測っていない方式の「テスト」を押してください（それまで次のテストは始められません）。
+            ページを再読み込みしてから、まだ測っていない方式の「テスト」を押してください（それまで次のテストは始められません。
+            削除できなかったデータは、再読み込みのあとのテストの前にも削除を試みます）。
             ここまでの結果は再読み込みしても残り、比較に使えます。
           </p>
         </div>

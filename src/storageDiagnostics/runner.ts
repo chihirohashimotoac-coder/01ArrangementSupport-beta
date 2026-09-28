@@ -99,6 +99,12 @@ export const DEFAULT_RECLAIM_POLL_MS = 500;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * 前回の残りを削除したのに Origin Usage が減らないときの error 名。基準（書き始めの usage）に残りの分が
+ * 含まれたままになり、削除の反映を正しく判定できないので、書き込みを始めずに再読み込みを求める。
+ */
+export const STALE_USAGE_ERROR_NAME = 'StaleUsageError';
+
 export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions): Promise<StorageDiagnosticResult> {
   const { adapter, targetBytes, probeStorage, signal } = options;
   const now = options.now ?? (() => Date.now());
@@ -107,10 +113,15 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
   if (!Number.isSafeInteger(options.chunkBytes) || options.chunkBytes <= 0) throw new RangeError(`chunkBytes が不正です: ${options.chunkBytes}`);
   const chunkBytes = Math.min(options.chunkBytes, targetBytes);
 
+  const sleep = options.sleep ?? defaultSleep;
+  const reclaimTimeoutMs = options.reclaimTimeoutMs ?? DEFAULT_RECLAIM_TIMEOUT_MS;
+  const reclaimPollMs = Math.max(1, options.reclaimPollMs ?? DEFAULT_RECLAIM_POLL_MS);
+
   const startedMs = now();
   // 開始前の値。前回の残りを削除できたら、削除のあとに測り直した値を「書き始めた時点」の基準にする
   // （残りの分を基準に含めると、今回の分が消えずに残っても「元に戻った」と判定してしまう）。
-  let before = await safeProbe(probeStorage);
+  const initial = await safeProbe(probeStorage);
+  let before = initial;
 
   let status: DiagnosticStatus = 'success';
   let failedPhase: DiagnosticPhase | null = null;
@@ -133,8 +144,24 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
   } else {
     try {
       // 前回のテストが途中で閉じられて残ったデータを消してから測る（残りがあると容量の比較がずれる）。
+      const hadLeftovers = await adapter.hasLeftovers().catch(() => null);
       await adapter.cleanup();
       before = await safeProbe(probeStorage);
+      if (hadLeftovers === true && initial.usageBytes !== null) {
+        // 残りの削除が usage に反映されるのを待つ。反映されないまま測ると、基準に残りの分が含まれてしまう。
+        const stale = () => before.usageBytes !== null && before.usageBytes >= (initial.usageBytes as number);
+        for (let waited = 0; stale() && waited < reclaimTimeoutMs && !signal?.aborted; waited += reclaimPollMs) {
+          await sleep(reclaimPollMs);
+          before = await safeProbe(probeStorage);
+        }
+        if (stale()) {
+          const error = new Error(
+            '前回のテストの残りを削除しましたが、Origin Usage にまだ反映されていません。ページを再読み込みしてから測ってください',
+          );
+          error.name = STALE_USAGE_ERROR_NAME;
+          throw error;
+        }
+      }
       writeStartedMs = now();
       writer = await adapter.open();
     } catch (error) {
@@ -192,9 +219,6 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
     cleanup = { status: 'failed', errorName: errorNameOf(error), errorMessage: errorMessageOf(error) };
   }
   // 削除が Origin Usage に反映されるのを待つ（反映されないまま次の方式を測ると、容量がずれる）。
-  const sleep = options.sleep ?? defaultSleep;
-  const reclaimTimeoutMs = options.reclaimTimeoutMs ?? DEFAULT_RECLAIM_TIMEOUT_MS;
-  const reclaimPollMs = Math.max(1, options.reclaimPollMs ?? DEFAULT_RECLAIM_POLL_MS);
   const baseline = before.usageBytes;
   const reclaimedIn = (value: OriginStorageStatus) =>
     baseline === null || value.usageBytes === null ? null : value.usageBytes <= baseline + chunkBytes;

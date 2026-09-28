@@ -1,7 +1,8 @@
 /**
  * 診断結果の比較（Case A〜D）と JSON export（`docs/BROWSER_STORAGE_DIAGNOSTICS.md`）。
  *
- * 比較するのは「同じ target size で、成功か失敗まで走った最新の結果」だけ。中止した結果は比べない。
+ * 比較するのは「同じ target size で、成功か失敗まで走った最新の結果」だけ。中止した結果と、
+ * 書き込みの前の失敗（`failedPhase: 'prepare'`）は比べない。
  * Case の判定は**切り分けの手がかり**であって、原因の断定ではない。
  */
 import { DIAGNOSTIC_BACKENDS, type DiagnosticBackend } from './constants';
@@ -32,6 +33,8 @@ export function compareBackends(results: readonly StorageDiagnosticResult[], tar
   const latest: Partial<Record<DiagnosticBackend, 'success' | 'failed'>> = {};
   for (const result of results) {
     if (result.targetBytes !== targetBytes || result.status === 'aborted') continue;
+    // 書き込みの前の失敗（前回の残りを消せない・開けない・削除が反映されない）は、その方式の容量の結果ではない。
+    if (result.status === 'failed' && result.failedPhase === 'prepare') continue;
     latest[result.backend] = result.status;
   }
   if (!DIAGNOSTIC_BACKENDS.every((backend) => latest[backend] !== undefined)) return null;

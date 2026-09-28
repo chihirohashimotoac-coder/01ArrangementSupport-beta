@@ -47,6 +47,13 @@ describe('compareBackends（docs の Case A〜D）', () => {
     expect(comparison?.interpretationJa).toContain(expected === 'other' ? 'どれにも当てはまりません' : `Case ${expected}`);
   });
 
+  it('書き込みの前の失敗（prepare）は、その方式の容量の結果として比べない', () => {
+    const prepare = { ...result('cache', 'failed'), failedPhase: 'prepare' as const, writtenBytes: 0, failedAtBytes: 0, errorName: 'BlockedError' };
+    expect(compareBackends([result('opfs', 'failed'), result('indexeddb', 'success'), prepare], GIB)).toBeNull();
+    // あとで書き込みまで走った結果があれば、それを使う。
+    expect(compareBackends([result('opfs', 'failed'), result('indexeddb', 'success'), prepare, result('cache', 'failed')], GIB)?.case).toBe('C');
+  });
+
   it('3 方式がそろわない・大きさが違う・中止した結果は比べない。同じ方式は最後の結果を使う', () => {
     expect(compareBackends([result('opfs', 'success'), result('indexeddb', 'success')], GIB)).toBeNull();
     expect(compareBackends([result('opfs', 'success'), result('indexeddb', 'success'), result('cache', 'success', 512 * MIB)], GIB)).toBeNull();

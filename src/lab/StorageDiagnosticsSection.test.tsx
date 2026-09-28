@@ -215,7 +215,7 @@ describe('StorageDiagnosticsSection', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6_000);
       });
-      expect(await screen.findByTestId('diag-unreclaimed')).toHaveTextContent('Cache API: 300 MiB → 304 MiB');
+      expect(await screen.findByTestId('diag-unreclaimed')).toHaveTextContent('Cache API: 削除した診断用のデータが、まだ Origin Usage から減っていません（300 MiB → 304 MiB）');
       expect(screen.getByTestId('diag-unreclaimed')).toHaveTextContent('ページを再読み込み');
       expect(screen.getByTestId('diag-reclaimed-cache')).toHaveTextContent('まだ反映されていません（5.0 秒待機）');
       // 再読み込みするまで、次のテストは始められない（容量がずれるため）。
@@ -276,6 +276,60 @@ describe('StorageDiagnosticsSection', () => {
     expect(screen.queryByTestId('diag-comparison')).toBeNull();
     expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('Status: Not Tested');
     expect(window.localStorage.getItem(STORAGE_DIAGNOSTIC_RESULTS_KEY)).toBeNull();
+  });
+
+  it('削除に失敗したら（usage が分からなくても）残りの方式を測らず、再読み込みまで次のテストを始めない', async () => {
+    const user = userEvent.setup();
+    let cleanups = 0;
+    const base = fakes();
+    const opfs = {
+      ...base.opfs,
+      async cleanup() {
+        cleanups += 1;
+        // 前回の残りの削除は成功し、終了後の削除だけ失敗する（別のタブが接続を開いたまま、など）。
+        if (cleanups > 1) throw Object.assign(new Error('blocked by another tab'), { name: 'BlockedError' });
+      },
+    };
+    const adapters = { ...base, opfs } as typeof base;
+    render(
+      <StorageDiagnosticsSection
+        adapters={adapters}
+        probeStorage={async () => ({ usageBytes: null, quotaBytes: null, persisted: null })}
+        requestPersist={async () => null}
+        testMode
+      />,
+    );
+    await user.click(screen.getByTestId('diag-start-all'));
+    expect(await screen.findByTestId('diag-skipped')).toHaveTextContent('IndexedDB / Cache API は測りませんでした');
+    expect(screen.getByTestId('diag-unreclaimed')).toHaveTextContent('OPFS: 診断用のデータを削除できませんでした（BlockedError: blocked by another tab）');
+    expect(screen.getByTestId('diag-cleanup-failed-opfs')).toBeInTheDocument();
+    expect(base.indexeddb.calls.open).toBe(0);
+    expect(base.cache.calls.open).toBe(0);
+    expect(screen.getByTestId('diag-start-indexeddb')).toBeDisabled();
+    expect(screen.getByTestId('diag-cleanup')).toBeEnabled();
+  });
+
+  it('前回の残りを削除しても usage が減らなければ、書き込みを始めずに再読み込みを求める（比較にも使わない）', async () => {
+    const user = userEvent.setup();
+    const base = fakes();
+    // 前回の残りがあり、削除しても usage が減らない。
+    const opfs = { ...base.opfs, hasLeftovers: async () => true };
+    const adapters = { ...base, opfs } as typeof base;
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<StorageDiagnosticsSection adapters={adapters} probeStorage={async () => STATUS} requestPersist={async () => null} testMode />);
+      await user.click(screen.getByTestId('diag-start-opfs'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(await screen.findByTestId('diag-unreclaimed')).toHaveTextContent('Origin Usage にまだ反映されていないため、書き込みを始めませんでした');
+      expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('StaleUsageError');
+      expect(screen.getByTestId('diag-status-opfs')).toHaveTextContent('Failed at: 0 MiB（prepare）');
+      expect(base.opfs.calls.open).toBe(0);
+      expect(screen.getByTestId('diag-start-cache')).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('使えない方式は「使えません」と表示し、測らない', async () => {

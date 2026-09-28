@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { MIB } from './constants';
 import { createFakeAdapter, quotaExceededError } from './fakeAdapter';
-import { createDiagnosticChunk, runStorageDiagnostic } from './runner';
+import { STALE_USAGE_ERROR_NAME, createDiagnosticChunk, runStorageDiagnostic } from './runner';
 import type { OriginStorageStatus } from './types';
 
 /** 呼ばれるたびに usage が増える probe（前 → 後 → 後片付けの後）。 */
@@ -281,6 +281,41 @@ describe('runStorageDiagnostic', () => {
     expect(result.originUsageBefore).toBe(300 * MIB);
     expect(result.usageReclaimed).toBe(false);
     expect(result.originUsageAfterCleanup).toBe(364 * MIB);
+  });
+
+  it('前回の残りがあれば、削除が usage に反映されるまで待ってから基準を取る', async () => {
+    const adapter = createFakeAdapter({ backend: 'cache' });
+    const waits: number[] = [];
+    const result = await runStorageDiagnostic({
+      adapter: { ...adapter, hasLeftovers: async () => true },
+      targetBytes: 32 * MIB,
+      chunkBytes: 16 * MIB,
+      // 開始前 400（残り 100）→ 削除直後はまだ 400 → 0.5 秒後に 300 → 書いた後 332 → 削除後 300
+      probeStorage: probeSequence(400 * MIB, 400 * MIB, 300 * MIB, 332 * MIB, 300 * MIB),
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+      createChunk: zeroChunk,
+    });
+    expect(result.status).toBe('success');
+    expect(result.originUsageBefore).toBe(300 * MIB);
+    expect(result.usageReclaimed).toBe(true);
+    expect(waits).toEqual([500]);
+  });
+
+  it('前回の残りの削除が usage に反映されなければ、書き込みを始めない（StaleUsageError・prepare）', async () => {
+    const adapter = createFakeAdapter({ backend: 'cache' });
+    const result = await runStorageDiagnostic({
+      adapter: { ...adapter, hasLeftovers: async () => true },
+      targetBytes: 32 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(400 * MIB),
+      reclaimTimeoutMs: 2000,
+      sleep: async () => {},
+      createChunk: zeroChunk,
+    });
+    expect(result).toMatchObject({ status: 'failed', failedPhase: 'prepare', errorName: STALE_USAGE_ERROR_NAME, writtenBytes: 0 });
+    expect(adapter.calls.open).toBe(0);
   });
 
   it('中止・削除の失敗・usage 不明のときは反映を待たない', async () => {
