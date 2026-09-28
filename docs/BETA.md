@@ -64,6 +64,12 @@ Beta では `/01ArrangementSupport-beta/` で自動的にビルドされます�
 > GitHub Pages を有効にするには、リポジトリの **Settings → Pages → Source** を
 > **GitHub Actions** にする必要があります（リポジトリ設定のため、コードからは変更できません）。
 
+> **有効化は、Production からの分離（保存キーの名前空間化）が `main` に入ってから行ってください。**
+> Bootstrap 直後の `main`（Production と同一の `abf8200b…`）は Production と同じ保存キー（`oas.*`）を
+> 使います。これを Beta の URL で配信すると、同じ origin の Production の設定・学習履歴を
+> 読み書きしてしまいます。2026-09-28 の Bootstrap 時は Pages が未有効だったため
+> `configure-pages` で止まり、何も配信されていません（Actions run #1）。その run は再実行しないでください。
+
 ---
 
 ## 3. 同じ origin を共有することの影響と対策

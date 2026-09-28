@@ -9,8 +9,6 @@
  * vite.config.ts（ビルド時）と画面（実行時）の両方から読むので、
  * ブラウザ API にも Node API にも依存しない定数だけを置く。
  */
-export const RELEASE_CHANNEL = 'beta' as const;
-
 export const APP_NAME = '01 Arrangement Support Beta';
 export const APP_SHORT_NAME = '01AS Beta';
 export const APP_DESCRIPTION =
@@ -30,8 +28,3 @@ export const STORAGE_NAMESPACE = '01as-beta:';
 
 /** Workbox の Cache Storage 名の接頭辞（Production の既定名と衝突させない）。 */
 export const CACHE_ID = '01as-beta';
-
-/** Production 版の公開先とリポジトリ（README・参考表示用）。 */
-export const PRODUCTION_URL = 'https://chihirohashimotoac-coder.github.io/01ArrangementSupport/';
-export const PRODUCTION_REPOSITORY = 'https://github.com/chihirohashimotoac-coder/01ArrangementSupport';
-export const BETA_URL = 'https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/';
