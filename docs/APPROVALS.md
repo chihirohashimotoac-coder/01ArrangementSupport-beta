@@ -736,6 +736,19 @@ WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm
   （`deleteModelAllInfoInCache(modelId)`）だけ（同じ origin の別の WebLLM アプリと `webllm/*` を共有し得るため）。
   `src/ai/architecture.test.ts` が一括削除の API を禁止する
 
+### AI-4. AI MODEL LAB のモデル保存方式（OPFS を既定にする）
+
+オーナーの PR #3 依頼（WebLLM MODEL STORAGE / QUOTA EXCEEDED FIX）による。PR のレビューと merge で確定する。
+
+- WebLLM Runtime の保存方式は `cacheBackend: 'opfs'`・`opfsAccessMode: 'auto'` を既定にする
+  （WebLLM 0.2.85 の `prebuiltAppConfig` の既定 Cache API で `QuotaExceededError` が出たため）
+- 推奨順は OPFS → IndexedDB → Cache API。初期値は API の有無だけで決め、保存の失敗で別の方式へ自動で切り替えない
+  （意図しない再ダウンロードを起こさない）。方式間の migration はしない
+- 存在確認・読み込み・削除は、方式ごとに同じ appConfig を使う。削除は「対象モデル × 対象の保存方式」だけ
+- OPFS の保存場所 `tvmjs-opfs-store/webllm/*` も AI-3 と同じ KNOWN LIMITATION（名前は WebLLM 側で固定）として扱う
+- WebLLM の版（0.2.85）・候補モデル・Runtime の種類・戦術データは変更しない
+- 詳細は `docs/AI_MODEL_STORAGE.md`
+
 ---
 
 ## 変更履歴
@@ -754,6 +767,7 @@ WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm
 | --- | --- | --- |
 | v1 | 2026-08-31 | A-1 〜 A-8 を承認（PR #1）。値の変更はなし、状態とドキュメントのみ更新。 |
 | AI-1〜3 | 2026-09-28 | PR #2。WebLLM 0.2.85 の依存追加（Benchmark Lab 限定）・Beta Pages 成果物での Developer Gate OPEN・WebLLM キャッシュ名の既知制約。戦術データは変更なし。 |
+| AI-4 | 2026-09-28 | PR #3。AI MODEL LAB のモデル保存方式を OPFS 既定へ（fallback は自動で切り替えない）。WebLLM の版・候補・戦術データは変更なし。 |
 | v1.3.4 | 2026-09-14 | A-9 〜 A-13 を承認。既存の重み（A-5〜A-8）は変更なし。新しい戦術判定軸の追加と、TRAINING の出題形式の入れ替え。 |
 | v1.3.5 | 2026-09-15 | A-14 〜 A-16 を承認。既存の重み（A-5〜A-8）は変更なし。得意ダブルの既定値が戦術判断を決めていた問題の修正と、SETUP TRAINING の回答単位の変更。 |
 | v1.3.6 | 2026-09-15 | A-17 を承認。既存の重み・第 1 候補の選び方は変更なし。実戦入力での残し候補の見せ方（最大 3 件・残り点つき）。 |

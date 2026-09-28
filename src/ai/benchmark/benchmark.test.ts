@@ -19,6 +19,7 @@ import { buildPrompt, PROMPT_VERSION_LABEL, SYSTEM_PROMPT } from './prompt';
 import { runBenchmark } from './runner';
 import { createFakeClock, createMockRuntime, faithfulResponse } from './runtimes/mockRuntime';
 import { createTemplateRuntime } from './runtimes/templateRuntime';
+import { fakeStorage } from './runtimes/fakeStorage';
 import { createWebLlmRuntime, type WebLlmModuleLike } from './runtimes/webllmRuntime';
 import type { BenchmarkCandidate, BenchmarkDataset, GenerationRequest } from './types';
 
@@ -350,6 +351,9 @@ describe('候補モデル', () => {
 });
 
 describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () => {
+  // OPFS に WebLLM の保存領域（tvmjs-opfs-store/webllm/model）がある状態。モデルの有無は偽のモジュールが答える。
+  const storage = fakeStorage({ opfs: { 'tvmjs-opfs-store': { webllm: { model: {} } } } });
+
   function fakeModule(cached: Set<string>) {
     const calls: string[] = [];
     const requests: Record<string, unknown>[] = [];
@@ -396,7 +400,7 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
 
   it('キャッシュに無いモデルは allowDownload なしで読み込まない', async () => {
     const { module, calls } = fakeModule(new Set());
-    const runtime = createWebLlmRuntime({ loadModule: async () => module, cacheStorage: null, now: () => 0 });
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, storage, now: () => 0 });
     await expect(
       runtime.load(FAKE_CANDIDATE, { allowDownload: false, signal: new AbortController().signal }),
     ).rejects.toMatchObject({ code: 'not-downloaded' });
@@ -408,7 +412,7 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
   it('thinking OFF を extra_body で渡し、毎回会話を reset し、計測値を返す', async () => {
     const { module, calls, requests } = fakeModule(new Set(['fixture-model-id']));
     let tick = 0;
-    const runtime = createWebLlmRuntime({ loadModule: async () => module, cacheStorage: null, now: () => (tick += 10) });
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, storage, now: () => (tick += 10) });
     expect((await runtime.load(FAKE_CANDIDATE, { allowDownload: false, signal: new AbortController().signal })).kind).toBe('cache-cold');
     const [benchmarkCase] = smallDataset().cases;
     const record = await runtime.generate({
@@ -429,7 +433,7 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
   it('削除は対象モデル単位で、ほかのモデルのキャッシュを消さない', async () => {
     const cached = new Set(['fixture-model-id', 'other-model-id']);
     const { module, calls } = fakeModule(cached);
-    const runtime = createWebLlmRuntime({ loadModule: async () => module, cacheStorage: null });
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, storage });
     await runtime.deleteCache(FAKE_CANDIDATE);
     expect(calls).toEqual(['delete:fixture-model-id']);
     expect([...cached]).toEqual(['other-model-id']);
@@ -437,7 +441,7 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
 
   it('削除は WebLLM のキャッシュ削除だけを呼ぶ（利用者データに触れない）', async () => {
     const { module, calls } = fakeModule(new Set(['fixture-model-id']));
-    const runtime = createWebLlmRuntime({ loadModule: async () => module, cacheStorage: null });
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, storage });
     window.localStorage.setItem('01as-beta:oas.trainingHistory.v2', '{"keep":true}');
     await runtime.deleteCache(FAKE_CANDIDATE);
     expect(calls).toEqual(['delete:fixture-model-id']);
@@ -446,7 +450,7 @@ describe('WebLLM Runtime（偽のモジュール・実モデルなし）', () =>
   });
 
   it('WebLLM の候補ではないものは扱わない', () => {
-    const runtime = createWebLlmRuntime({ loadModule: async () => fakeModule(new Set()).module, cacheStorage: null });
+    const runtime = createWebLlmRuntime({ loadModule: async () => fakeModule(new Set()).module, storage });
     expect(runtime.supports(BASELINE_CANDIDATE)).toBe(false);
     expect(runtime.supports(candidateById('gemma-3n-e2b-it')!)).toBe(false);
   });

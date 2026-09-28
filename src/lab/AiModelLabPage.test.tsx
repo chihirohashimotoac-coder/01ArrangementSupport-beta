@@ -5,6 +5,8 @@
  * - 確認画面に model / download size / estimated memory / runtime / license を出す
  * - Benchmark の結果・人手評価は Beta の名前空間に保存し、モデルの削除で消えない
  * - WebGPU が無い端末では Download できない（UNSUPPORTED）
+ * - 保存方式（既定 OPFS）・origin の usage / quota / persisted を表示し、方式ごとに保存状況を確かめる
+ * - 容量制限（QuotaExceededError）を quota-exceeded として示し、OPFS での再試行は確認を経てから取得する
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { vi } from 'vitest';
@@ -13,7 +15,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BASELINE_CANDIDATE } from '../ai/benchmark/candidates';
 import { assembleDataset } from '../ai/benchmark/dataset';
 import type { DeviceReport } from '../ai/benchmark/device';
-import { createMockRuntime, type MockRuntime } from '../ai/benchmark/runtimes/mockRuntime';
+import type { ModelStorageBackend, ModelStorageSupport, StorageStatus } from '../ai/benchmark/modelStorage';
+import { createMockRuntime, type MockRuntime, type MockRuntimeOptions } from '../ai/benchmark/runtimes/mockRuntime';
 import { createTemplateRuntime } from '../ai/benchmark/runtimes/templateRuntime';
 import { BenchmarkRuntimeError, type BenchmarkCandidate, type BenchmarkRuntime } from '../ai/benchmark/types';
 import { buildDecisionEvidence } from '../ai/evidence';
@@ -76,8 +79,17 @@ const USER_DATA = {
   [PREFERENCES_KEY]: '{"version":1}',
 };
 
+const ALL_STORAGE: ModelStorageSupport = { opfs: true, indexeddb: true, cache: true };
+const STATUS: StorageStatus = { usageBytes: 1024 ** 2, quotaBytes: 10 * 1024 ** 3, persisted: false };
+
 function renderLab<R extends BenchmarkRuntime = MockRuntime>(
-  options: { mock?: R; device?: DeviceReport; candidates?: BenchmarkCandidate[] } = {},
+  options: {
+    mock?: R;
+    device?: DeviceReport;
+    candidates?: BenchmarkCandidate[];
+    probeStorage?: () => Promise<StorageStatus>;
+    requestPersist?: () => Promise<boolean | null>;
+  } = {},
 ): R & { unmount: () => void } {
   const mock = (options.mock ?? createMockRuntime({ id: 'mock' })) as R;
   const view = render(
@@ -87,9 +99,23 @@ function renderLab<R extends BenchmarkRuntime = MockRuntime>(
       candidates={options.candidates ?? [FIXTURE, BASELINE_CANDIDATE]}
       buildDataset={buildDataset}
       probe={async () => options.device ?? DEVICE}
+      storageSupport={ALL_STORAGE}
+      probeStorage={options.probeStorage ?? (async () => STATUS)}
+      requestPersist={options.requestPersist ?? (async () => false)}
     />,
   );
   return Object.assign(mock, { unmount: view.unmount });
+}
+
+/** 保存方式ごとに Mock Runtime を作る（Lab が方式を変えるたびに作り直すのと同じ形）。 */
+function perBackendRuntimes(options: (backend: ModelStorageBackend) => MockRuntimeOptions) {
+  const created: Partial<Record<ModelStorageBackend, MockRuntime>> = {};
+  const factory = (backend: ModelStorageBackend | null) => {
+    if (backend === null) return [createTemplateRuntime(() => 0)];
+    created[backend] ??= createMockRuntime({ id: `mock-${backend}`, storageBackend: backend, ...options(backend) });
+    return [createTemplateRuntime(() => 0), created[backend]!];
+  };
+  return { factory, created };
 }
 
 beforeEach(() => {
@@ -212,7 +238,9 @@ describe('AI MODEL LAB', () => {
     await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
     await user.selectOptions(screen.getByTestId('lab-model-select'), 'second-model');
     await user.click(await screen.findByTestId('lab-load'));
-    expect(await screen.findByTestId('lab-message')).toHaveTextContent('読み込めませんでした');
+    const failure = await screen.findByTestId('lab-failure');
+    expect(failure).toHaveTextContent('GPU（WebGPU）へ読み込めませんでした');
+    expect(screen.getByTestId('failure-class')).toHaveTextContent('gpu-load-failed');
     await user.selectOptions(screen.getByTestId('lab-model-select'), 'fixture-model');
     expect(screen.getByTestId('lab-model-status')).not.toHaveTextContent('読み込み済み');
     expect(screen.getByTestId('lab-run')).toBeDisabled();
@@ -223,4 +251,173 @@ describe('AI MODEL LAB', () => {
     await waitFor(() => expect(screen.getByTestId('lab-compatibility')).toHaveTextContent('UNSUPPORTED'));
     expect(screen.getByTestId('lab-download')).toBeDisabled();
   });
+
+  it('保存方式（既定 OPFS）と origin の usage / quota / persisted を表示する', async () => {
+    renderLab();
+    expect(await screen.findByTestId('storage-backend')).toHaveTextContent('OPFS');
+    await waitFor(() => expect(screen.getByTestId('storage-usage')).toHaveTextContent('1 MiB'));
+    expect(screen.getByTestId('storage-quota')).toHaveTextContent('10.00 GiB');
+    expect(screen.getByTestId('storage-persistent')).toHaveTextContent('no');
+    expect(screen.getByTestId('lab-storage-backend-select')).toHaveValue('opfs');
+    await waitFor(() =>
+      expect(screen.getByTestId('lab-model-storage-presence')).toHaveTextContent('OPFS: なし / IndexedDB: なし / Cache API: なし'),
+    );
+  });
+
+  it('OPFS が無いブラウザでは推奨順の次の方式を初期値にし、使えない方式は選べない', async () => {
+    render(
+      <AiModelLabPage
+        onBack={() => {}}
+        runtimes={[createTemplateRuntime(() => 0), createMockRuntime({ id: 'mock', storageBackend: 'indexeddb' })]}
+        candidates={[FIXTURE, BASELINE_CANDIDATE]}
+        buildDataset={buildDataset}
+        probe={async () => DEVICE}
+        storageSupport={{ opfs: false, indexeddb: true, cache: true }}
+        probeStorage={async () => STATUS}
+        requestPersist={async () => false}
+      />,
+    );
+    expect(await screen.findByTestId('storage-backend')).toHaveTextContent('IndexedDB');
+    expect(screen.getByTestId('storage-fallback')).toHaveTextContent('OPFS の API を公開していない');
+    const select = screen.getByTestId('lab-storage-backend-select');
+    expect(within(select).getByRole('option', { name: /OPFS/ })).toBeDisabled();
+  });
+
+  it('容量制限（QuotaExceededError）は quota-exceeded として保存方式・診断情報を示し、OPFS での再試行は確認を経てから取得する', async () => {
+    const user = userEvent.setup();
+    const { factory, created } = perBackendRuntimes((backend) => ({
+      failDownload: backend === 'cache' ? () => new DOMException('Quota exceeded.', 'QuotaExceededError') : undefined,
+    }));
+    render(
+      <AiModelLabPage
+        onBack={() => {}}
+        runtimes={factory}
+        candidates={[FIXTURE, BASELINE_CANDIDATE]}
+        buildDataset={buildDataset}
+        probe={async () => DEVICE}
+        storageSupport={ALL_STORAGE}
+        probeStorage={async () => STATUS}
+        requestPersist={async () => false}
+      />,
+    );
+    await user.selectOptions(await screen.findByTestId('lab-storage-backend-select'), 'cache');
+    expect(screen.getByTestId('storage-backend')).toHaveTextContent('Cache API');
+    await user.click(await screen.findByTestId('lab-download'));
+    expect(screen.getByTestId('lab-download-confirm-storage')).toHaveTextContent('Cache API');
+    await user.click(screen.getByTestId('lab-download-start'));
+
+    const failure = await screen.findByTestId('lab-failure');
+    expect(failure).toHaveTextContent('モデルの保存に失敗しました。');
+    expect(failure).toHaveTextContent('保存方式: Cache API');
+    expect(failure).toHaveTextContent('容量制限');
+    expect(failure).toHaveTextContent('GPU の不足ではありません');
+    expect(failure).toHaveTextContent('OPFS で再試行できます');
+    expect(screen.getByTestId('failure-class')).toHaveTextContent('quota-exceeded');
+    const diagnostics = screen.getByTestId('lab-failure-diagnostics');
+    expect(diagnostics).toHaveTextContent('QuotaExceededError');
+    expect(diagnostics).toHaveTextContent('Quota exceeded.');
+    expect(diagnostics).toHaveTextContent('50.0%');
+    expect(diagnostics).toHaveTextContent('1 MiB / 10.00 GiB');
+    expect(created.cache?.log).toEqual(['download:fixture-model']);
+
+    // OPFS で再試行: 方式を OPFS に切り替え、確認画面を出すだけ（まだ取得しない）。
+    await user.click(screen.getByTestId('lab-retry-opfs'));
+    expect(screen.getByTestId('storage-backend')).toHaveTextContent('OPFS');
+    expect(screen.getByTestId('lab-download-confirm-storage')).toHaveTextContent('OPFS');
+    expect(screen.queryByTestId('lab-failure')).toBeNull();
+    expect(created.opfs?.log ?? []).toEqual([]);
+    await user.click(screen.getByTestId('lab-download-start'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    expect(created.opfs?.log[0]).toBe('download:fixture-model');
+    // Cache API 側の記録は増えていない（方式を混ぜない）。
+    expect(created.cache?.log).toEqual(['download:fixture-model']);
+  });
+
+  it('永続化は「ダウンロードを開始」を押したときに 1 回だけ要求し、拒否されても取得する', async () => {
+    const user = userEvent.setup();
+    const persist = vi.fn(async () => false);
+    const mock = renderLab({ requestPersist: persist });
+    await screen.findByTestId('storage-backend');
+    expect(persist).not.toHaveBeenCalled();
+    await user.click(await screen.findByTestId('lab-download'));
+    expect(persist).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId('lab-download-start'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(mock.log[0]).toBe('download:fixture-model');
+
+    // 削除して、もう一度ダウンロードしても再要求しない。
+    await user.click(screen.getByTestId('lab-delete-model'));
+    await user.click(screen.getByTestId('lab-delete-start'));
+    await user.click(await screen.findByTestId('lab-download'));
+    await user.click(screen.getByTestId('lab-download-start'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('download 前後の usage の差を、モデルの厳密な値ではない footprint として別に示す', async () => {
+    const user = userEvent.setup();
+    let usage = 1024 ** 2;
+    renderLab({
+      mock: createMockRuntime({ id: 'mock', sizeBytes: null }),
+      probeStorage: async () => {
+        const status = { usageBytes: usage, quotaBytes: 10 * 1024 ** 3, persisted: false };
+        usage += 512 * 1024 ** 2;
+        return status;
+      },
+    });
+    await user.click(await screen.findByTestId('lab-download'));
+    await user.click(screen.getByTestId('lab-download-start'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    expect(await screen.findByTestId('lab-download-footprint')).toHaveTextContent('512 MiB');
+    expect(screen.getByTestId('lab-download-footprint')).toHaveTextContent('origin 全体の差分');
+    // モデル単位のサイズを数えられない Runtime では 0 B ではなく unknown。
+    expect(screen.getByTestId('lab-download-size')).toHaveTextContent('unknown');
+  });
+
+  it('いまの方式に無くても、別の方式に保存されていれば「どこにも無い」とは扱わない', async () => {
+    renderLab({ mock: createMockRuntime({ id: 'mock', cachedElsewhere: { cache: ['fixture-model'] } }) });
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('未ダウンロード'));
+    await waitFor(() =>
+      expect(screen.getByTestId('lab-model-storage-presence')).toHaveTextContent('OPFS: なし / IndexedDB: なし / Cache API: あり'),
+    );
+    expect(screen.getByTestId('lab-model-elsewhere')).toHaveTextContent('Cache API に保存されています');
+  });
+
+  it('保存方式の変更・モデルの削除で 01as-beta:oas.* / 01as-beta:ai.benchmark.* を変えない', async () => {
+    const user = userEvent.setup();
+    const benchmarkData = {
+      [BENCHMARK_RUNS_KEY]: '{"version":1,"runs":[]}',
+      [BENCHMARK_RATINGS_KEY]: '{"version":1,"ratings":{"r":{"clarity":3}}}',
+    };
+    for (const [key, value] of Object.entries(benchmarkData)) window.localStorage.setItem(key, value);
+    const snapshot = () =>
+      Object.fromEntries(Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index)!)
+        .map((key) => [key, window.localStorage.getItem(key)]));
+    const before = snapshot();
+    expect(Object.keys(before).every((key) => key.startsWith('01as-beta:oas.') || key.startsWith('01as-beta:ai.benchmark.'))).toBe(true);
+
+    const { factory } = perBackendRuntimes(() => ({ cachedCandidateIds: ['fixture-model'] }));
+    render(
+      <AiModelLabPage
+        onBack={() => {}}
+        runtimes={factory}
+        candidates={[FIXTURE, BASELINE_CANDIDATE]}
+        buildDataset={buildDataset}
+        probe={async () => DEVICE}
+        storageSupport={ALL_STORAGE}
+        probeStorage={async () => STATUS}
+        requestPersist={async () => false}
+      />,
+    );
+    for (const backend of ['indexeddb', 'cache', 'opfs'] as const) {
+      await user.selectOptions(await screen.findByTestId('lab-storage-backend-select'), backend);
+      await user.click(await screen.findByTestId('lab-delete-model'));
+      expect(screen.getByTestId('lab-delete-confirm')).toHaveTextContent(`保存方式: ${{ opfs: 'OPFS', indexeddb: 'IndexedDB', cache: 'Cache API' }[backend]}`);
+      await user.click(screen.getByTestId('lab-delete-start'));
+      await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('未ダウンロード'));
+    }
+    expect(snapshot()).toEqual(before);
+  });
 });
+

@@ -36,6 +36,17 @@
   font-size: 0.85rem;
 }
 
+.lab__failure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+}
+
+.lab__failure p {
+  margin: 0;
+}
+
 .lab__section {
   background: var(--surface);
   border: 1px solid var(--border);

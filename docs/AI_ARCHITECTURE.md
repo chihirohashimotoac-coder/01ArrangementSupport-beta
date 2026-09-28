@@ -369,7 +369,7 @@ Benchmark Runtime を呼びます（explain.ts を通すと、不合格の応答
 ### 11.4 保存とキャッシュ
 
 ```text
-AI model cache（WebLLM: Cache Storage の webllm/*）
+AI model cache（WebLLM: 既定は OPFS の tvmjs-opfs-store/webllm/*。IndexedDB / Cache API の webllm/* も選べる）
   ≠
 01AS user data（localStorage の 01as-beta:oas.*）
   ≠
@@ -378,7 +378,7 @@ Benchmark の結果・人手評価（localStorage の 01as-beta:ai.benchmark.*�
 
 | 保存するもの | 場所 | モデル削除で消えるか |
 | --- | --- | --- |
-| モデル（重み・設定・model library） | Cache Storage `webllm/model`・`webllm/config`・`webllm/wasm`（WebLLM が名前を固定） | そのモデルの項目だけ消える（`deleteModelAllInfoInCache`） |
+| モデル（重み・設定・model library） | 既定は OPFS `tvmjs-opfs-store/webllm/{model,config,wasm}`。IndexedDB / Cache API では `webllm/model`・`webllm/config`・`webllm/wasm`（WebLLM が名前を固定。`docs/AI_MODEL_STORAGE.md`） | 選んでいる保存方式の、そのモデルの項目だけ消える（`deleteModelAllInfoInCache`）。ほかの方式のモデルは消えない |
 | Benchmark の結果（直近 5 run） | `01as-beta:ai.benchmark.runs.v1` | **消えない** |
 | 人手評価 | `01as-beta:ai.benchmark.ratings.v1` | **消えない** |
 | 設定・TRAINING 履歴・SIMULATION 設定 | `01as-beta:oas.*` | **消えない** |
@@ -396,7 +396,7 @@ Benchmark の結果・人手評価（localStorage の 01as-beta:ai.benchmark.*�
 
 | 規則 | 実装・検査 |
 | --- | --- |
-| WebLLM model cache ≠ 01AS user data | モデルは Cache Storage の `webllm/*`、利用者データ・評価は localStorage の `01as-beta:*`。削除で利用者データ・評価が残ることをテストで確認 |
+| WebLLM model cache ≠ 01AS user data | モデルは WebLLM の保存領域（既定 OPFS）、利用者データ・評価は localStorage の `01as-beta:*`。保存方式の変更・削除で利用者データ・評価が残ることをテストで確認 |
 | **WebLLM の全キャッシュを一括削除しない** | 01AS 側に一括削除の処理を持たない。`caches.delete()`・`Cache.delete()`・`indexedDB.deleteDatabase()`・OPFS の削除・Clear-Site-Data・WebLLM の部分削除 API を architecture test で禁止 |
 | 削除は対象モデル単位 | `deleteModelAllInfoInCache(modelId)` を、選んだ候補のモデル ID で 1 か所から呼ぶだけ（architecture test）。ほかのモデルのキャッシュが残ることを unit test で確認 |
 | サイズの計測は読むだけ | `webllm/*` を `open` / `keys` / `match` で読み、`content-length` を合計する（書き換え・削除をしない） |

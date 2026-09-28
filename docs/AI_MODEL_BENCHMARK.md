@@ -55,7 +55,10 @@ Comparable Result（BenchmarkRun。JSON / CSV export・人手評価）
 | `src/ai/benchmark/device.ts` | 端末確認と互換性の判定 |
 | `src/ai/benchmark/runtimes/templateRuntime.ts` | 決定論的な baseline（モデルなし） |
 | `src/ai/benchmark/runtimes/mockRuntime.ts` | CI 用の Mock Runtime / Fake Model |
-| `src/ai/benchmark/runtimes/webllmRuntime.ts` | WebLLM（動的 import） |
+| `src/ai/benchmark/runtimes/webllmRuntime.ts` | WebLLM（動的 import）。保存方式ごとに 1 つの appConfig を使う |
+| `src/ai/benchmark/modelStorage.ts` | モデルの保存方式（OPFS / IndexedDB / Cache API）・方式ごとの存在確認とサイズ・origin の保存状況（`docs/AI_MODEL_STORAGE.md`） |
+| `src/ai/benchmark/modelLoadFailure.ts` | 取得・読み込みの失敗の分類と診断情報 |
+| `src/ai/benchmark/runtimes/fakeStorage.ts` | テスト用の偽の保存 API |
 | `src/lab/benchmarkDataset.ts` | 01AS Core v1 の定義（engine を**呼ぶだけ**） |
 | `src/lab/AiModelLabPage.tsx` | AI MODEL LAB の画面（Developer Gate 配下） |
 | `src/lab/labStorage.ts` | 結果・人手評価の保存（`01as-beta:` 名前空間） |
@@ -82,14 +85,17 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 
 1. 設定 → **DEVELOPER** → 「AI MODEL LAB を開く」（Gate が閉じたビルドでは項目自体が出ません）
 2. **DEVICE** で WebGPU・adapter・features・端末メモリ（報告値）・保存容量を確認
+   **STORAGE** で Model Storage Backend（既定 OPFS）・Storage Persistent・Origin Usage / Quota を確認
 3. **MODEL** で候補を選び、Compatibility（`CAN_TRY` / `MAY_BE_TOO_LARGE` / `UNSUPPORTED` / `UNKNOWN`）を確認
-4. **Download** → 確認画面（model / download size / estimated memory / runtime / license）→ 「ダウンロードを開始」
+4. **Download** → 確認画面（model / download size / estimated memory / runtime / 保存方式 / license）→ 「ダウンロードを開始」
+   （失敗したら区分と診断情報が出る。記録の仕方は `docs/AI_MODEL_STORAGE.md` 7 節）
 5. **BENCHMARK** で Thinking（対応モデルだけ。既定 OFF）とケース（すべて / クイック 10 件）を選び Run Benchmark
 6. **RESULTS** で指標を確認し、応答ごとに 5 項目を評価、JSON / CSV（blind）で export
 
 - WebGPU は secure context（`https://` または `localhost`）でだけ使えます。スマートフォンで試す場合は HTTPS で配信してください。
 - ページ表示・設定画面の表示・Lab の表示・モデルの選択だけでは、モデルを取得しません（`e2e/gate-open/` で外部通信を遮断して検査）。
-  モデルを選ぶと WebLLM のライブラリ（同じ配信元の chunk）だけを読み込み、キャッシュの有無を確認します。
+  モデルを選ぶと、保存方式ごとに保存状況を確認します（保存領域を作らない）。どの方式にも WebLLM の保存領域が無ければ
+  WebLLM のライブラリも読み込みません。保存領域があるときと Download / Load のときに WebLLM（同じ配信元の chunk）を読み込みます。
 - 同じ候補の 2 回目以降の読み込みは `cache-cold`（ページ再読み込み後）/ `cache-warm`（同じページで再読み込み）として記録されます。
 
 ### 2.1 ビルドの種類と CI
@@ -98,7 +104,7 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 | --- | --- | --- | --- |
 | `npm run build`（通常） | 閉（`VITE_AI_FEATURES` 未設定） | lint / test / E2E | `npm run test:e2e`: Lab の入口が無い・Lab / WebLLM を precache しない・モデル配布元へ通信しない |
 | `npm run build:pages`（GitHub Pages） | **開**（`scripts/lib/pagesBuild.mjs`） | Beta の公開 | `npm run check:base`: base path・Lab と WebLLM の chunk が別に出る・precache に入らない・モデルのファイルが無い |
-| `npm run test:e2e:gate-open` | **開**（Pages と同じ設定・base path で配信） | Pages 成果物の E2E | 入口がある・Lab は遅延読み込み・起動だけでは Lab / WebLLM / モデルを読まない・モデル選択で WebLLM だけを遅延読み込み・確認画面の表示・「ダウンロードを開始」を押さなければ取得しない・外部通信 0・通常の 01AS が動く |
+| `npm run test:e2e:gate-open` | **開**（Pages と同じ設定・base path で配信） | Pages 成果物の E2E | 入口がある・Lab は遅延読み込み・起動だけでは Lab / WebLLM / モデルを読まない・Storage Backend = OPFS の表示・モデル選択で保存状況を確認（保存領域を作らない）・確認画面の表示（保存方式 OPFS）・「ダウンロードを開始」を押さなければ取得しない・Cache API / OPFS に何も書かない・外部通信 0・通常の 01AS が動く |
 
 - base path は deploy 時に repository 名から算出します（`.github/workflows/ci-deploy.yml`）。
   Pages 用ビルドの Gate の値と、検証用の既定 base は `scripts/lib/pagesBuild.mjs` の 1 か所にだけ書きます。
@@ -107,13 +113,17 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 
 ### 2.2 KNOWN LIMITATION: WebLLM のキャッシュ
 
-- WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`）は、01AS 専用名へ変更できません。
+- モデルの保存方式は **OPFS が既定**です（PR #3。WebLLM 0.2.85 の既定の Cache API で `QuotaExceededError` が出たため）。
+  方針・失敗の分類・実機での再検証手順は `docs/AI_MODEL_STORAGE.md`。
+- WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm/wasm`。OPFS では `tvmjs-opfs-store/webllm/*`）は、
+  01AS 専用名へ変更できません。
   同じ origin（`chihirohashimotoac-coder.github.io`）の別のアプリが WebLLM を使うと、`webllm/*` を共有する可能性があります。
 - 既知の制約として許容しています（`docs/APPROVALS.md` AI-3）。正式採用を妨げる問題としては扱いません。
 - Benchmark の段階では次を守ります。
   - **WebLLM model cache ≠ 01AS user data**（モデルを削除しても設定・TRAINING 履歴・SIMULATION 設定・Benchmark の結果・人手評価は消えない）
-  - **WebLLM の全キャッシュを一括削除する処理を 01AS 側に実装しない**。「モデルを削除」は選んだ候補のモデルだけを
-    `deleteModelAllInfoInCache(modelId)` で消す。`caches.delete()` などの一括削除は `src/ai/architecture.test.ts` が禁止する
+  - **WebLLM の全キャッシュを一括削除する処理を 01AS 側に実装しない**。「モデルを削除」は選んだ候補のモデルだけを、
+    いま選んでいる保存方式の appConfig で `deleteModelAllInfoInCache(modelId, appConfig)` で消す。`caches.delete()`・
+    `indexedDB.deleteDatabase()`・OPFS の削除などの一括削除は `src/ai/architecture.test.ts` が禁止する
 - 詳細は `docs/AI_ARCHITECTURE.md` 11.4 節。
 
 ---
@@ -134,7 +144,8 @@ VITE_AI_FEATURES=on npm run build && npm run preview
 値の出典: VRAM・低リソース向け・context window は **WebLLM 0.2.85 の `prebuiltAppConfig`**（package.json で固定。
 `src/ai/benchmark/benchmark.test.ts` が一致を検査）。ライセンス・日本語対応は各モデルカード（8 節）。
 **ダウンロードサイズは未計測**です（この作業環境からは配布元へ接続できず確認できませんでした）。Lab で取得した後、
-Cache Storage の `content-length` の合計として計測・表示します。
+保存方式ごとに計測・表示します（OPFS は WebLLM の記録の `nbytes` の合計、Cache API は `content-length` の合計、
+IndexedDB は unknown。正確に数えられなければ unknown。`docs/AI_MODEL_STORAGE.md` 4 節）。
 
 | candidate | runtime | license | parameter size | quantization | browser support | Japanese support | model download size | VRAM estimate | benchmark result | adoption status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -192,8 +203,8 @@ OFF なのに推論の本文が出た場合・think タグが閉じていない�
 | 計測値 | usage に prompt / completion tokens・decode tok/s・TTFT が入る | 自前で計測する必要がある |
 | VRAM の目安 | `vram_required_MB`・`low_resource_required` を持つ | 設定に無い（自前で計測） |
 | 進捗 | `initProgressCallback`（取得・読み込み） | progress_callback |
-| キャッシュ | Cache API（既定）/ IndexedDB / OPFS。名前は `webllm/model`・`webllm/config`・`webllm/wasm` で**固定** | Cache API（既定の名前はライブラリ側で固定。未検証） |
-| キャッシュ削除 | `deleteModelAllInfoInCache(modelId)` | Cache API を直接操作 |
+| キャッシュ | Cache API（WebLLM の既定）/ IndexedDB / OPFS。**Lab は OPFS を既定**にする。名前は `webllm/model`・`webllm/config`・`webllm/wasm`（OPFS は `tvmjs-opfs-store/webllm/*`）で**固定** | Cache API（既定の名前はライブラリ側で固定。未検証） |
+| キャッシュ削除 | `deleteModelAllInfoInCache(modelId, appConfig)`（保存方式ごと） | Cache API を直接操作 |
 | thinking の切り替え | `extra_body.enable_thinking`（Qwen3 向け） | chat template の引数（未検証） |
 | モデル切り替え | `engine.reload(modelId)` | pipeline の作り直し |
 | bundle | 動的 import の chunk 6.05 MB（gzip 2.15 MB。このリポジトリのビルドで計測） | 未計測 |
@@ -305,7 +316,7 @@ user: 場面ごとの指示（CHECKOUT / SETUP / NEXT VISIT / RECOVERY / GAME RE
 | `outputTokens` / `promptTokens` | Runtime の usage |
 | `outputLength` | 本文の文字数 |
 | `modelLoadTime` | 読み込みにかかった時間と種類（`download` / `cache-cold` / `cache-warm` / `already-loaded`） |
-| `modelSizeBytes` | 取得後に Cache Storage から計測（`content-length` の合計）。未計測なら null |
+| `modelSizeBytes` | 取得後に、選んでいる保存方式から計測（`docs/AI_MODEL_STORAGE.md` 4 節）。正確に数えられなければ null（unknown） |
 | `estimatedVRAM` | Runtime の設定値（WebLLM の `vram_required_MB`） |
 
 読み込みの種類:
