@@ -154,15 +154,15 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
       // 前回のテストが途中で閉じられた・削除に失敗したなどで残ったデータを、この方式だけでなく
       // ほかの方式の分も消してから測る（残りがあると、この方式が使える容量が少なく見える）。
       const others = options.otherAdapters ?? [];
-      const leftovers = await Promise.all([adapter, ...others].map((item) => item.hasLeftovers().catch(() => null)));
-      const hadLeftovers = leftovers.some((value) => value === true);
-      await adapter.cleanup();
+      const leftovers = await Promise.all(others.map((item) => item.hasLeftovers().catch(() => null)));
+      // 実際に削除したものがあったか（削除の結果で判断する。有無を先に調べられない方式でも分かる）。
+      let hadLeftovers = await adapter.cleanup();
       for (const [index, other] of others.entries()) {
         // 残りが「無い」と確かめられた方式だけを飛ばす。分からない（null）方式も削除を試みる
         // （無いものの削除は何もしない）。
-        if (leftovers[index + 1] === false) continue;
+        if (leftovers[index] === false) continue;
         try {
-          await other.cleanup();
+          if (await other.cleanup()) hadLeftovers = true;
         } catch (error) {
           const wrapped = new Error(`${DIAGNOSTIC_BACKEND_LABEL[other.backend]} に残った診断用のデータを削除できませんでした: ${errorMessageOf(error)}`);
           wrapped.name = errorNameOf(error) ?? 'Error';
@@ -251,8 +251,9 @@ export async function runStorageDiagnostic(options: RunStorageDiagnosticOptions)
     baseline === null || value.usageBytes === null ? null : value.usageBytes <= baseline + chunkBytes;
   let afterCleanup = await safeProbe(probeStorage);
   let reclaimWaitMs = 0;
+  // 中止されたら待つのをやめる（書き込みの結果はそのまま残し、反映は確かめられていないものとして扱う）。
   if (cleanup.status === 'ok' && !signal?.aborted) {
-    while (reclaimedIn(afterCleanup) === false && reclaimWaitMs < reclaimTimeoutMs) {
+    while (reclaimedIn(afterCleanup) === false && reclaimWaitMs < reclaimTimeoutMs && !signal?.aborted) {
       await sleep(reclaimPollMs);
       reclaimWaitMs += reclaimPollMs;
       afterCleanup = await safeProbe(probeStorage);

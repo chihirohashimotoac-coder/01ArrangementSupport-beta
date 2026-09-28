@@ -174,6 +174,7 @@ describe('runStorageDiagnostic', () => {
       async cleanup() {
         cleanups += 1;
         if (cleanups > 1) throw Object.assign(new Error('blocked by another tab'), { name: 'BlockedError' });
+        return false;
       },
     };
     const result = await runStorageDiagnostic({
@@ -287,7 +288,7 @@ describe('runStorageDiagnostic', () => {
     const adapter = createFakeAdapter({ backend: 'cache' });
     const waits: number[] = [];
     const result = await runStorageDiagnostic({
-      adapter: { ...adapter, hasLeftovers: async () => true },
+      adapter: { ...adapter, cleanup: async () => true },
       targetBytes: 32 * MIB,
       chunkBytes: 16 * MIB,
       // 開始前 400（残り 100）→ 削除直後はまだ 400 → 0.5 秒後に 300 → 書いた後 332 → 削除後 300
@@ -306,7 +307,7 @@ describe('runStorageDiagnostic', () => {
   it('前回の残りの削除が usage に反映されなければ、書き込みを始めない（StaleUsageError・prepare）', async () => {
     const adapter = createFakeAdapter({ backend: 'cache' });
     const result = await runStorageDiagnostic({
-      adapter: { ...adapter, hasLeftovers: async () => true },
+      adapter: { ...adapter, cleanup: async () => true },
       targetBytes: 32 * MIB,
       chunkBytes: 16 * MIB,
       probeStorage: probeSequence(400 * MIB),
@@ -377,7 +378,7 @@ describe('runStorageDiagnostic', () => {
     const controller = new AbortController();
     const adapter = createFakeAdapter({ backend: 'cache' });
     const result = await runStorageDiagnostic({
-      adapter: { ...adapter, hasLeftovers: async () => true },
+      adapter: { ...adapter, cleanup: async () => true },
       targetBytes: 32 * MIB,
       chunkBytes: 16 * MIB,
       probeStorage: probeSequence(400 * MIB),
@@ -389,6 +390,49 @@ describe('runStorageDiagnostic', () => {
     });
     expect(result).toMatchObject({ status: 'aborted', failedPhase: null, errorName: null, writtenBytes: 0 });
     expect(adapter.calls.open).toBe(0);
+  });
+
+  it('有無を先に調べられない（null）方式でも、削除で何かを消したら反映を待ってから基準を取る', async () => {
+    const indexeddb = createFakeAdapter({ backend: 'indexeddb' });
+    // hasLeftovers() は分からないが、削除すると実際に残りがあった（IDB の oldVersion > 0 に当たる）。
+    const unknown = { ...indexeddb, hasLeftovers: async () => null, cleanup: async () => true };
+    const waits: number[] = [];
+    const result = await runStorageDiagnostic({
+      adapter: createFakeAdapter({ backend: 'opfs' }),
+      otherAdapters: [unknown],
+      targetBytes: 16 * MIB,
+      chunkBytes: 16 * MIB,
+      // 開始前 400（残り 100）→ 削除直後はまだ 400 → 0.5 秒後に 300 → 書いた後 316 → 削除後 300
+      probeStorage: probeSequence(400 * MIB, 400 * MIB, 300 * MIB, 316 * MIB, 300 * MIB),
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+      createChunk: zeroChunk,
+    });
+    expect(result.status).toBe('success');
+    expect(result.originUsageBefore).toBe(300 * MIB);
+    expect(waits).toEqual([500]);
+  });
+
+  it('削除の反映を待っている間（書き込みのあと）に中止されたら、すぐに待つのをやめる', async () => {
+    const controller = new AbortController();
+    const waits: number[] = [];
+    const result = await runStorageDiagnostic({
+      adapter: createFakeAdapter({ backend: 'cache' }),
+      targetBytes: 32 * MIB,
+      chunkBytes: 16 * MIB,
+      probeStorage: probeSequence(300 * MIB, 300 * MIB, 332 * MIB),
+      reclaimTimeoutMs: 5_000,
+      sleep: async (ms) => {
+        waits.push(ms);
+        controller.abort();
+      },
+      signal: controller.signal,
+      createChunk: zeroChunk,
+    });
+    // 書き込みは終わっているので結果は残し、反映は確かめられていない（false）として扱う（次のテストを止める）。
+    expect(waits).toEqual([500]);
+    expect(result).toMatchObject({ status: 'success', writtenBytes: 32 * MIB, usageReclaimed: false, reclaimWaitMs: 500 });
   });
 
   it('中止・削除の失敗・usage 不明のときは反映を待たない', async () => {

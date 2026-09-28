@@ -151,13 +151,14 @@ export function createOpfsAdapter(env: DiagnosticEnvironment): DiagnosticStorage
         dispose: () => writable.abort().catch(() => {}),
       };
     },
-    async cleanup(): Promise<void> {
-      if (typeof env.storageManager?.getDirectory !== 'function') return;
+    async cleanup(): Promise<boolean> {
+      if (typeof env.storageManager?.getDirectory !== 'function') return false;
       try {
         // 診断専用のディレクトリ（中身は opfs-test.bin と、書き込み中の一時ファイルだけ）を消す。OPFS root は消さない。
         await (await root()).removeEntry(DIAGNOSTIC_OPFS_DIRECTORY, { recursive: true });
+        return true;
       } catch (error) {
-        if (isNotFound(error)) return;
+        if (isNotFound(error)) return false;
         throw error;
       }
     },
@@ -242,15 +243,17 @@ export function createIndexedDbAdapter(env: DiagnosticEnvironment): DiagnosticSt
         dispose: close,
       };
     },
-    cleanup(): Promise<void> {
+    cleanup(): Promise<boolean> {
       const idb = env.indexedDb;
-      if (idb === null) return Promise.resolve();
+      if (idb === null) return Promise.resolve(false);
       return new Promise((resolve, reject) => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const request = idb.deleteDatabase(DIAGNOSTIC_IDB_NAME);
-        request.onsuccess = () => {
+        request.onsuccess = (event) => {
           clearTimeout(timer);
-          resolve();
+          // IDBVersionChangeEvent.oldVersion は、データベースが無かったら 0。分からなければ「あった」とみなす（安全側）。
+          const oldVersion = (event as { oldVersion?: unknown } | null)?.oldVersion;
+          resolve(typeof oldVersion === 'number' ? oldVersion > 0 : true);
         };
         request.onerror = () => {
           clearTimeout(timer);
@@ -309,11 +312,11 @@ export function createCacheAdapter(env: DiagnosticEnvironment): DiagnosticStorag
         dispose: async () => {},
       };
     },
-    async cleanup(): Promise<void> {
+    async cleanup(): Promise<boolean> {
       const cacheStorage = env.cacheStorage;
-      if (cacheStorage === null) return;
+      if (cacheStorage === null) return false;
       // 診断専用の cache だけを消す（ほかの cache を列挙して消さない）。
-      await cacheStorage.delete(DIAGNOSTIC_CACHE_NAME);
+      return cacheStorage.delete(DIAGNOSTIC_CACHE_NAME);
     },
     async hasLeftovers(): Promise<boolean | null> {
       const cacheStorage = env.cacheStorage;

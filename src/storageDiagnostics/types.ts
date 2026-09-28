@@ -27,8 +27,11 @@ export interface DiagnosticStorageAdapter {
   isAvailable(): boolean;
   /** 診断用の保存領域を作り、書き込み先を開く。 */
   open(): Promise<DiagnosticWriter>;
-  /** 診断用の保存領域だけを削除する。無ければ何もしない。失敗したら throw する（黙って成功にしない）。 */
-  cleanup(): Promise<void>;
+  /**
+   * 診断用の保存領域だけを削除する。無ければ何もしない。失敗したら throw する（黙って成功にしない）。
+   * 実際に削除したものがあれば true（無かったら false）。有無を先に調べられない方式でも、削除の結果で分かる。
+   */
+  cleanup(): Promise<boolean>;
   /** 診断用の保存領域が残っているか。保存領域を作らずに調べる。分からなければ null。 */
   hasLeftovers(): Promise<boolean | null>;
 }

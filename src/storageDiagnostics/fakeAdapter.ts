@@ -75,7 +75,9 @@ export function createFakeAdapter(options: FakeAdapterOptions): FakeAdapter {
     async cleanup() {
       calls.cleanup += 1;
       if (options.cleanupError) throw options.cleanupError;
+      const removed = stored > 0;
       stored = 0;
+      return removed;
     },
     async hasLeftovers() {
       return stored > 0;

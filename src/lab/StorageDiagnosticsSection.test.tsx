@@ -288,6 +288,7 @@ describe('StorageDiagnosticsSection', () => {
         cleanups += 1;
         // 前回の残りの削除は成功し、終了後の削除だけ失敗する（別のタブが接続を開いたまま、など）。
         if (cleanups > 1) throw Object.assign(new Error('blocked by another tab'), { name: 'BlockedError' });
+        return false;
       },
     };
     const adapters = { ...base, opfs } as typeof base;
@@ -313,7 +314,7 @@ describe('StorageDiagnosticsSection', () => {
     const user = userEvent.setup();
     const base = fakes();
     // 前回の残りがあり、削除しても usage が減らない。
-    const opfs = { ...base.opfs, hasLeftovers: async () => true };
+    const opfs = { ...base.opfs, cleanup: async () => true };
     const adapters = { ...base, opfs } as typeof base;
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

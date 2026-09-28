@@ -261,11 +261,13 @@ class FakeIdbFactory implements IdbFactoryLike {
     const request = this.request();
     later(() => {
       const remove = () => {
+        const existed = this.data.has(name);
         const stores = this.data.get(name);
         if (stores) for (const records of stores.values()) for (const bytes of records.values()) this.disk.release(bytes);
         this.data.delete(name);
         this.deleted.push(name);
-        request.onsuccess?.({});
+        // 実際の IDBVersionChangeEvent と同じく、無かったデータベースの oldVersion は 0。
+        request.onsuccess?.({ oldVersion: existed ? 1 : 0 });
       };
       const open = () => this.connections.filter((db) => db.name === name && !db.closed);
       for (const db of open()) db.onversionchange?.({});
@@ -468,6 +470,18 @@ describe.each(Object.keys(ADAPTERS) as (keyof typeof ADAPTERS)[])('%s adapter', 
     expect(fake.foreign()).toEqual(fake.before);
   });
 
+  it('cleanup は、実際に削除したものがあれば true、無ければ false を返す（有無を先に調べられなくても分かる）', async () => {
+    const fake = await seeded(1024 * KIB);
+    const adapter = ADAPTERS[backend](fake.env);
+    expect(await adapter.cleanup()).toBe(false);
+    const writer = await adapter.open();
+    await writer.write(new Uint8Array(KIB), 0);
+    await writer.finish();
+    expect(await adapter.cleanup()).toBe(true);
+    expect(await adapter.cleanup()).toBe(false);
+    expect(fake.foreign()).toEqual(fake.before);
+  });
+
   it('前回のテストの残りを検出し、次のテストの前に消す', async () => {
     const fake = await seeded(1024 * KIB);
     const adapter = ADAPTERS[backend](fake.env);
@@ -578,7 +592,7 @@ describe('cleanup failure（黙って成功にしない）', () => {
     for (const create of Object.values(ADAPTERS)) {
       const adapter = create(env);
       expect(adapter.isAvailable()).toBe(false);
-      await expect(adapter.cleanup()).resolves.toBeUndefined();
+      await expect(adapter.cleanup()).resolves.toBe(false);
       expect(await adapter.hasLeftovers()).toBe(false);
       await expect(adapter.open()).rejects.toMatchObject({ name: 'NotSupportedError' });
     }
