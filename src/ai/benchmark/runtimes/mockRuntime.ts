@@ -7,6 +7,7 @@
  * - 出力は `respond` が決める（既定は決定論的な baseline と同じ文面）
  * - 時間は偽の時計（`FakeClock`）を進めるだけなので、計測値も決定論的になる
  * - キャッシュの有無・取得・削除を記録し、「明示操作なしに取得しない」ことを検査できる
+ * - 保存方式（Storage Backend）を 1 つ持ち、方式ごとの有無を別々に答える（既定は OPFS）
  */
 import {
   explainDecisionDeterministically,
@@ -21,6 +22,7 @@ import {
   type LoadOptions,
   type LoadRecord,
 } from '../types';
+import { DEFAULT_MODEL_STORAGE_BACKEND, type ModelStorageBackend } from '../modelStorage';
 
 export interface FakeClock {
   now(): number;
@@ -55,7 +57,14 @@ export interface MockRuntimeOptions {
   readonly downloadMs?: number;
   readonly ttftMs?: number;
   readonly msPerToken?: number;
-  readonly sizeBytes?: number;
+  /** 保存済みのサイズ。null なら「不明」を返す。 */
+  readonly sizeBytes?: number | null;
+  /** この Runtime の保存方式。既定は OPFS。 */
+  readonly storageBackend?: ModelStorageBackend;
+  /** ほかの保存方式に保存済みの候補（方式ごと）。存在確認だけに使い、読み込みには使わない。 */
+  readonly cachedElsewhere?: Partial<Record<ModelStorageBackend, readonly string[]>>;
+  /** 取得を伴う読み込みで投げる失敗（容量制限などを模擬する）。 */
+  readonly failDownload?: (candidate: BenchmarkCandidate) => unknown;
 }
 
 export interface MockRuntime extends BenchmarkRuntime {
@@ -75,6 +84,7 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
   const cached = new Set(options.cachedCandidateIds ?? []);
   const loadedOnce = new Set<string>();
   const log: string[] = [];
+  const backend = options.storageBackend ?? DEFAULT_MODEL_STORAGE_BACKEND;
   let loaded: string | null = null;
 
   return {
@@ -85,6 +95,11 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
     cached,
     loadedCandidateId: () => loaded,
     supports: () => true,
+    modelStorage: {
+      backend,
+      isCachedIn: async (candidate, target) =>
+        target === backend ? cached.has(candidate.id) : (options.cachedElsewhere?.[target] ?? []).includes(candidate.id),
+    },
     isCached: async (candidate) => cached.has(candidate.id),
     async load(candidate: BenchmarkCandidate, loadOptions: LoadOptions): Promise<LoadRecord> {
       if (loaded === candidate.id) {
@@ -98,6 +113,7 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
         }
         log.push(`download:${candidate.id}`);
         loadOptions.onProgress?.(0.5, 'downloading');
+        if (options.failDownload) throw options.failDownload(candidate);
         clock.advance(options.downloadMs ?? 5000);
         cached.add(candidate.id);
         kind = 'download';
@@ -137,6 +153,7 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
       cached.delete(candidate.id);
       if (loaded === candidate.id) loaded = null;
     },
-    cachedSizeBytes: async (candidate) => (cached.has(candidate.id) ? options.sizeBytes ?? 1_000_000 : null),
+    cachedSizeBytes: async (candidate) =>
+      cached.has(candidate.id) ? (options.sizeBytes === undefined ? 1_000_000 : options.sizeBytes) : null,
   };
 }

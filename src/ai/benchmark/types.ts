@@ -9,6 +9,7 @@
  * 計測値だけを扱う。モデルの出力を engine の型へ戻す経路は作らない。
  */
 import type { DecisionEvidence, GameReviewEvidence } from '../types';
+import type { ModelStorageBackend } from './modelStorage';
 
 // ---------------------------------------------------------------------------
 // Dataset
@@ -190,6 +191,22 @@ export interface LoadOptions {
   readonly onProgress?: (fraction: number, text: string) => void;
 }
 
+/**
+ * モデルのファイルを保存する Runtime の、保存方式に関する部分（`modelStorage.ts`）。
+ *
+ * 1 つの Runtime は 1 つの保存方式だけを使う（存在確認・取得・読み込み・削除で方式を混ぜない）。
+ * 方式を変えるときは Runtime を作り直す。
+ */
+export interface RuntimeModelStorage {
+  /** この Runtime が取得・読み込み・削除に使う保存方式。 */
+  readonly backend: ModelStorageBackend;
+  /**
+   * 指定した方式に、その候補のモデルがあるか（**取得も保存領域の作成もしない**）。
+   * 分からなければ null。保存方式が違えば、同じモデル ID でも保存場所は別。
+   */
+  isCachedIn(candidate: BenchmarkCandidate, backend: ModelStorageBackend): Promise<boolean | null>;
+}
+
 /** 候補モデルを Lab から動かす Runtime。実装は `runtimes/`。 */
 export interface BenchmarkRuntime {
   readonly id: string;
@@ -204,8 +221,13 @@ export interface BenchmarkRuntime {
   unload(): Promise<void>;
   /** その候補のモデルのキャッシュだけを消す。利用者データへは触れない。 */
   deleteCache(candidate: BenchmarkCandidate): Promise<void>;
-  /** キャッシュ上のサイズ（byte）。分からなければ null。 */
+  /**
+   * この Runtime の保存方式に保存されたモデルのサイズ（byte）。正確に数えられなければ null（不明）。
+   * 誤った値（0 B など）より null を返す。
+   */
   cachedSizeBytes(candidate: BenchmarkCandidate): Promise<number | null>;
+  /** モデルのファイルを保存する Runtime だけが持つ（baseline には無い）。 */
+  readonly modelStorage?: RuntimeModelStorage;
 }
 
 export type BenchmarkRuntimeErrorCode =

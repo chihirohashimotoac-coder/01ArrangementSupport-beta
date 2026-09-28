@@ -4,9 +4,13 @@
  * - WebLLM 本体は**動的 import**（`import('@mlc-ai/web-llm')`）で読む。Lab を開いて
  *   Runtime を使うまでアプリ本体の bundle にも Service Worker の precache にも入らない
  * - モデルの取得は `load({ allowDownload: true })` のときだけ（利用者が Download を押したとき）。
- *   Benchmark の実行時は `allowDownload: false` で、キャッシュに無ければ失敗させる
- * - キャッシュは WebLLM の Cache Storage（`webllm/model`・`webllm/config`・`webllm/wasm`。
- *   名前は WebLLM 側で固定）。削除は WebLLM の `deleteModelAllInfoInCache` だけを使い、
+ *   Benchmark の実行時は `allowDownload: false` で、保存されていなければ失敗させる
+ * - 保存方式（Storage Backend）は Runtime ごとに 1 つ（既定は OPFS。`modelStorage.ts`）。
+ *   `prebuiltAppConfig` に保存方式を重ねた**同じ appConfig**を、`hasModelInCache`・
+ *   `deleteModelAllInfoInCache`・`MLCEngine` のすべてへ渡す（方式を混ぜない）。
+ *   WebLLM 0.2.85 の `prebuiltAppConfig` の既定は Cache API（`cacheBackend: "cache"`）
+ * - 保存場所の名前は WebLLM 側で固定（`webllm/model`・`webllm/config`・`webllm/wasm`、
+ *   OPFS では `tvmjs-opfs-store/webllm/*`）。削除は WebLLM の `deleteModelAllInfoInCache` だけを使い、
  *   01AS の利用者データ（localStorage の `01as-beta:`）には触れない
  * - thinking は `extra_body.enable_thinking` で切り替える（01AS の既定は OFF）
  * - 毎回 `resetChat()` してから生成する（前のケースの会話を持ち越さない）
@@ -21,11 +25,17 @@ import {
   type LoadOptions,
   type LoadRecord,
 } from '../types';
+import {
+  DEFAULT_MODEL_STORAGE_BACKEND,
+  browserStorageEnvironment,
+  hasWebLlmStore,
+  measureModelBytes,
+  withModelStorage,
+  type ModelStorageBackend,
+  type StorageEnvironment,
+} from '../modelStorage';
 
 export const WEBLLM_RUNTIME_ID = 'webllm';
-
-/** WebLLM が使う Cache Storage の名前（WebLLM 側で固定。変更できない）。 */
-export const WEBLLM_CACHE_NAMES = ['webllm/model', 'webllm/config', 'webllm/wasm'] as const;
 
 // ---------------------------------------------------------------------------
 // WebLLM の API のうち、ここで使う部分だけの型（SDK の型をアプリへ漏らさない）
@@ -40,8 +50,10 @@ interface ModelRecordLike {
   readonly required_features?: readonly string[];
 }
 
-interface AppConfigLike {
+export interface AppConfigLike {
   readonly model_list: readonly ModelRecordLike[];
+  readonly cacheBackend?: string;
+  readonly opfsAccessMode?: string;
 }
 
 interface ChunkLike {
@@ -73,19 +85,14 @@ export interface WebLlmModuleLike {
   deleteModelAllInfoInCache(modelId: string, appConfig?: AppConfigLike): Promise<void>;
 }
 
-interface CacheStorageLike {
-  has(name: string): Promise<boolean>;
-  open(name: string): Promise<{
-    keys(): Promise<readonly { readonly url: string }[]>;
-    match(request: { readonly url: string }): Promise<{ readonly headers: { get(name: string): string | null } } | undefined>;
-  }>;
-}
-
 export interface WebLlmRuntimeOptions {
   readonly now?: () => number;
   /** テストで偽のモジュールを渡す。既定は動的 import。 */
   readonly loadModule?: () => Promise<WebLlmModuleLike>;
-  readonly cacheStorage?: CacheStorageLike | null;
+  /** 保存方式。既定は OPFS。 */
+  readonly storageBackend?: ModelStorageBackend;
+  /** テストで偽の保存 API を渡す。既定はブラウザの API（読むだけ）。 */
+  readonly storage?: StorageEnvironment;
 }
 
 function defaultLoadModule(): Promise<WebLlmModuleLike> {
@@ -100,19 +107,18 @@ function modelIdOf(candidate: BenchmarkCandidate): string {
 }
 
 export interface WebLlmRuntime extends BenchmarkRuntime {
+  readonly storageBackend: ModelStorageBackend;
   /** 読み込んだ WebLLM の設定から、その候補の記録を返す（表示・照合用）。 */
   modelRecordOf(candidate: BenchmarkCandidate): Promise<ModelRecordLike | null>;
+  /** この Runtime が WebLLM へ渡す appConfig（毎回同じオブジェクト）。 */
+  appConfig(): Promise<AppConfigLike>;
 }
 
 export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmRuntime {
   const now = options.now ?? (() => performance.now());
   const loadModule = options.loadModule ?? defaultLoadModule;
-  const cacheStorage =
-    options.cacheStorage !== undefined
-      ? options.cacheStorage
-      : typeof caches === 'undefined'
-        ? null
-        : (caches as unknown as CacheStorageLike);
+  const backend = options.storageBackend ?? DEFAULT_MODEL_STORAGE_BACKEND;
+  const storage = options.storage ?? browserStorageEnvironment();
   let modulePromise: Promise<WebLlmModuleLike> | null = null;
   let engine: EngineLike | null = null;
   let loadedModelId: string | null = null;
@@ -126,26 +132,60 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
     return modulePromise;
   };
 
+  // 保存方式ごとの appConfig。同じ方式には毎回同じオブジェクトを返す（has / delete / MLCEngine で共有）。
+  const configs = new Map<ModelStorageBackend, AppConfigLike>();
+  const configFor = (webllm: WebLlmModuleLike, target: ModelStorageBackend): AppConfigLike => {
+    let config = configs.get(target);
+    if (config === undefined) {
+      config = withModelStorage(webllm.prebuiltAppConfig, target);
+      configs.set(target, config);
+    }
+    return config;
+  };
+
   const recordOf = async (candidate: BenchmarkCandidate): Promise<ModelRecordLike | null> => {
     const webllm = await module();
     return webllm.prebuiltAppConfig.model_list.find((record) => record.model_id === modelIdOf(candidate)) ?? null;
+  };
+
+  /**
+   * その方式にモデルがあるか。保存領域がまだ無ければ WebLLM を呼ばずに false を返す
+   * （WebLLM の確認処理は保存領域を作るため）。作らずに確かめられない別の方式は null（不明）。
+   */
+  const cachedIn = async (candidate: BenchmarkCandidate, target: ModelStorageBackend): Promise<boolean | null> => {
+    const modelId = modelIdOf(candidate);
+    const store = await hasWebLlmStore(target, storage);
+    if (store === false) return false;
+    if (store === null && target !== backend) return null;
+    const webllm = await module();
+    return webllm.hasModelInCache(modelId, configFor(webllm, target));
+  };
+
+  const modelStorage = {
+    backend,
+    async isCachedIn(candidate: BenchmarkCandidate, target: ModelStorageBackend) {
+      try {
+        return await cachedIn(candidate, target);
+      } catch {
+        return null;
+      }
+    },
   };
 
   return {
     id: WEBLLM_RUNTIME_ID,
     kind: 'webllm',
     labelJa: 'WebLLM（WebGPU）',
+    storageBackend: backend,
+    modelStorage,
     supports: (candidate) => candidate.runtime === 'webllm' && candidate.runtimeModelId !== null,
     modelRecordOf: recordOf,
 
-    async isCached(candidate) {
-      try {
-        const webllm = await module();
-        return await webllm.hasModelInCache(modelIdOf(candidate), webllm.prebuiltAppConfig);
-      } catch {
-        return null;
-      }
+    async appConfig() {
+      return configFor(await module(), backend);
     },
+
+    isCached: (candidate) => modelStorage.isCachedIn(candidate, backend),
 
     async load(candidate: BenchmarkCandidate, loadOptions: LoadOptions): Promise<LoadRecord> {
       const modelId = modelIdOf(candidate);
@@ -156,12 +196,13 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
       if (!(await recordOf(candidate))) {
         throw new BenchmarkRuntimeError('unsupported', `WebLLM の prebuilt に ${modelId} がありません。`);
       }
-      const cached = await webllm.hasModelInCache(modelId, webllm.prebuiltAppConfig);
+      const appConfig = configFor(webllm, backend);
+      const cached = (await cachedIn(candidate, backend)) === true;
       if (!cached && !loadOptions.allowDownload) {
         throw new BenchmarkRuntimeError('not-downloaded', `${candidate.displayName} はまだダウンロードされていません。`);
       }
       const kind: LoadRecord['kind'] = !cached ? 'download' : loadedThisSession.has(modelId) ? 'cache-warm' : 'cache-cold';
-      engine ??= new webllm.MLCEngine({ appConfig: webllm.prebuiltAppConfig });
+      engine ??= new webllm.MLCEngine({ appConfig });
       const current = engine;
       current.setInitProgressCallback((report) => loadOptions.onProgress?.(report.progress, report.text));
       const abort = () => {
@@ -258,36 +299,23 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
     async deleteCache(candidate) {
       const modelId = modelIdOf(candidate);
       const webllm = await module();
+      const appConfig = configFor(webllm, backend);
       if (engine !== null && loadedModelId === modelId) {
         await engine.unload();
         loadedModelId = null;
       }
-      // WebLLM の Cache Storage（webllm/*）の、このモデルの項目だけを消す。
-      await webllm.deleteModelAllInfoInCache(modelId, webllm.prebuiltAppConfig);
       loadedThisSession.delete(modelId);
+      // この方式に保存領域が無ければ、消すものは無い（WebLLM の削除処理は保存領域を作り、
+      // 一覧のファイルが無いと取得しようとするため呼ばない）。
+      if ((await hasWebLlmStore(backend, storage)) === false) return;
+      // この方式の、このモデルの項目だけを消す（ほかのモデル・ほかの方式・利用者データには触れない）。
+      await webllm.deleteModelAllInfoInCache(modelId, appConfig);
     },
 
     async cachedSizeBytes(candidate) {
-      if (cacheStorage === null) return null;
       const record = await recordOf(candidate).catch(() => null);
       if (!record) return null;
-      const modelBase = record.model.endsWith('/') ? record.model : `${record.model}/`;
-      let total = 0;
-      let counted = 0;
-      for (const name of WEBLLM_CACHE_NAMES) {
-        if (!(await cacheStorage.has(name))) continue;
-        const cache = await cacheStorage.open(name);
-        for (const request of await cache.keys()) {
-          if (!request.url.startsWith(modelBase) && request.url !== record.model_lib) continue;
-          const response = await cache.match(request);
-          const length = Number(response?.headers.get('content-length'));
-          if (Number.isFinite(length) && length > 0) {
-            total += length;
-            counted += 1;
-          }
-        }
-      }
-      return counted === 0 ? null : total;
+      return measureModelBytes(backend, record, storage);
     },
   };
 }

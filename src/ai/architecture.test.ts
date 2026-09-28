@@ -227,8 +227,9 @@ describe('通信・秘密情報・AI 依存を持たない', () => {
   });
 
   it('WebLLM のキャッシュを一括削除しない（削除は対象モデル単位だけ）', () => {
-    // WebLLM のキャッシュ名（webllm/*）は固定で、同じ origin の別アプリと共有し得る（KNOWN LIMITATION）。
-    // 01AS からは Cache Storage・IndexedDB を丸ごと消さず、WebLLM のモデル単位の削除 API だけを使う。
+    // WebLLM のキャッシュ名（webllm/*。OPFS では tvmjs-opfs-store/webllm/*）は固定で、同じ origin の別アプリと
+    // 共有し得る（KNOWN LIMITATION）。01AS からは Cache Storage・IndexedDB・OPFS を丸ごと消さず、
+    // WebLLM のモデル単位の削除 API だけを使う（保存方式を変えても同じ）。
     const forbidden: readonly [RegExp, string][] = [
       [/\bcaches\s*\.\s*delete\s*\(/, 'caches.delete()'],
       [/\b(?:cache|cacheStorage|artifactCache)\s*\.\s*delete\s*\(/, 'Cache.delete()'],
@@ -250,6 +251,39 @@ describe('通信・秘密情報・AI 依存を持たない', () => {
     expect([...runtime.matchAll(/\.deleteModelAllInfoInCache\(([^,)]+)/g)].map((match) => match[1].trim())).toEqual([
       'modelId',
     ]);
+  });
+
+  it('モデルの保存領域（OPFS）は読むだけで、作成・書き込み・削除をしない（削除は WebLLM のモデル単位の API だけ）', () => {
+    const forbidden: readonly [RegExp, string][] = [
+      [/\bremoveEntry\s*\(/, 'removeEntry()'],
+      [/\bcreateWritable\s*\(/, 'createWritable()'],
+      [/\bcreateSyncAccessHandle\s*\(/, 'createSyncAccessHandle()'],
+      [/\bcreate\s*:\s*true\b/, '{ create: true }'],
+      [/\bgetDirectory\s*\(\s*\)\s*\.\s*remove\b/, 'OPFS root の削除'],
+    ];
+    const violations: string[] = [];
+    for (const file of [...aiSources, ...sourceFiles(LAB_DIR).filter((path) => !isTest(path))]) {
+      const source = readFileSync(file, 'utf8');
+      for (const [pattern, label] of forbidden) {
+        if (pattern.test(source)) violations.push(`${relative(ROOT, file)}: ${label}`);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('WebLLM の存在確認・削除・読み込みは、保存方式を重ねた同じ appConfig を使う（prebuiltAppConfig を直接渡さない）', () => {
+    const runtime = readFileSync(join(AI_DIR, 'benchmark', 'runtimes', 'webllmRuntime.ts'), 'utf8');
+    // prebuiltAppConfig は、保存方式を重ねる元（withModelStorage）とモデルの記録の参照にだけ使う。
+    const uses = [...runtime.matchAll(/webllm\.prebuiltAppConfig(\.\w+)?/g)].map((match) => match[0]);
+    expect(uses.sort()).toEqual(['webllm.prebuiltAppConfig', 'webllm.prebuiltAppConfig.model_list']);
+    expect(runtime).toMatch(/withModelStorage\(webllm\.prebuiltAppConfig, target\)/);
+    // 渡す appConfig は configFor（方式ごとに同じオブジェクト）から作る。
+    expect([...runtime.matchAll(/\.hasModelInCache\(([^;]*)\);/g)].map((match) => match[1])).toEqual([
+      'modelId, configFor(webllm, target)',
+    ]);
+    expect([...runtime.matchAll(/\.deleteModelAllInfoInCache\(([^;]*)\);/g)].map((match) => match[1])).toEqual(['modelId, appConfig']);
+    expect([...runtime.matchAll(/new webllm\.MLCEngine\(([^)]*)\)/g)].map((match) => match[1])).toEqual(['{ appConfig }']);
+    expect((runtime.match(/const appConfig = configFor\(webllm, backend\);/g) ?? []).length).toBe(2);
   });
 
   it('モデルを直接呼ぶ（runtime.generate）のは Benchmark の runner だけ（explain.ts を通さない唯一の例外）', () => {
