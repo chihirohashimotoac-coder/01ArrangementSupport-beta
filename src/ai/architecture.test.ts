@@ -121,7 +121,19 @@ describe('依存の向き', () => {
     expect(violations).toEqual([]);
   });
 
-  it('アプリ本体（src/ai 以外）はまだ AI 層を使っていない（既定 OFF・未公開）', () => {
+  it('Model Management（src/ai/models）は engine / domain / data / storage / 画面に依存しない', () => {
+    const violations: string[] = [];
+    for (const file of aiSources.filter((path) => path.startsWith(join(AI_DIR, 'models')))) {
+      for (const statement of importsOf(readFileSync(file, 'utf8'))) {
+        if (/(^|\/)(engine|domain|data|storage|geometry|components|pages|hooks)(\/|$)/.test(statement.from)) {
+          violations.push(`${relative(ROOT, file)} → ${statement.from}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('アプリ本体（src/ai 以外）はまだ AI 層を使っていない（モデル未導入・未公開）', () => {
     const users = sourceFiles(SRC)
       .filter((file) => !file.startsWith(AI_DIR) && !isTest(file))
       .filter((file) =>
@@ -160,6 +172,16 @@ describe('通信・秘密情報・AI 依存を持たない', () => {
     const aiPackage =
       /(web-llm|mlc-ai|transformers|xenova|huggingface|onnxruntime|llama|ggml|wllama|tensorflow|tfjs|openai|anthropic|google\/generative-ai|google\/genai|@google-ai|langchain|ollama|mistral|cohere|webgpu)/i;
     expect(names.filter((name) => aiPackage.test(name))).toEqual([]);
+  });
+
+  it('具体的なモデル名をアプリのコードへ書かない（Model Catalog のデータにだけ書く）', () => {
+    // 現時点のカタログは空なので、src 全体（テスト以外）に 1 つも現れない。
+    const family = /\b(qwen|llama|gemma|phi-?\d|mistral|deepseek|smollm|tinyllama)/i;
+    const violations = sourceFiles(SRC)
+      .filter((file) => !isTest(file))
+      .filter((file) => family.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(ROOT, file));
+    expect(violations).toEqual([]);
   });
 
   it('モデルファイルをリポジトリへ置いていない', () => {

@@ -16,6 +16,39 @@ export type { ExplainOptions } from './explain';
 export { isAiDeveloperGateOpen, AI_DEVELOPER_GATE_DEFAULT_OPEN } from './developerGate';
 export { templateProvider, TEMPLATE_PROVIDER_ID } from './templateProvider';
 export { AI_EVIDENCE_SCHEMA_VERSION } from './types';
+export {
+  DEFAULT_MODEL_CATALOG,
+  LOCAL_AI_MODEL_CLASSES,
+  LOCAL_AI_MODEL_CLASS_PROFILES,
+  createModelCatalog,
+} from './models/catalog';
+export type {
+  LocalAiModelCatalog,
+  LocalAiModelClass,
+  LocalAiModelDefinition,
+} from './models/catalog';
+export {
+  activateModel,
+  cancelDownload,
+  clearActiveModel,
+  completeDownload,
+  createModelState,
+  deleteModel,
+  failDownload,
+  modelStatusOf,
+  restoreModelState,
+  startDownload,
+  updateDownloadProgress,
+  MODEL_STATE_STORAGE_NAME,
+} from './models/state';
+export type { ModelManagerState, ModelRuntimeStatus } from './models/state';
+export {
+  AI_MODEL_CACHE_NAMESPACE,
+  modelCacheNameOf,
+  removeModel,
+  resolveActiveProvider,
+} from './models/runtime';
+export type { LocalModelRuntime } from './models/runtime';
 export type {
   AiCallContext,
   AiFallbackReason,
