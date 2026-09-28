@@ -13,7 +13,7 @@ export {
 } from './evidence';
 export { explainDecision, summarizeSession, DEFAULT_AI_TIMEOUT_MS } from './explain';
 export type { ExplainOptions } from './explain';
-export { isAiFeatureEnabled, AI_FEATURES_DEFAULT_ENABLED } from './featureFlag';
+export { isAiDeveloperGateOpen, AI_DEVELOPER_GATE_DEFAULT_OPEN } from './developerGate';
 export { templateProvider, TEMPLATE_PROVIDER_ID } from './templateProvider';
 export { AI_EVIDENCE_SCHEMA_VERSION } from './types';
 export type {

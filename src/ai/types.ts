@@ -195,8 +195,10 @@ export interface AiProvider {
 
 /** Provider の説明を使わず、決定論的な説明へ切り替えた理由。 */
 export type AiFallbackReason =
-  /** feature flag が OFF、または Provider が設定されていない。 */
-  | 'disabled'
+  /** Developer Gate（開発者向けの kill switch）が閉じている。 */
+  | 'developer-gate-closed'
+  /** 使用中のモデルが無い（未導入・未選択）。従来の 01AS としての説明を返す。 */
+  | 'no-active-model'
   /** Provider がその機能に対応していない。 */
   | 'unsupported'
   /** Provider が例外を投げた（読み込み失敗・ブラウザ非対応を含む）。 */

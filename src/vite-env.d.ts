@@ -3,8 +3,9 @@
 
 interface ImportMetaEnv {
   /**
-   * Beta の AI 機能（説明層）。`on` のときだけ有効。既定は OFF（未設定）。
-   * 詳細は src/ai/featureFlag.ts / docs/AI_ARCHITECTURE.md。
+   * Beta の AI 層の Developer Gate（開発者向けの experimental kill switch）。
+   * ユーザー向けの AI ON / OFF 設定ではない。`on` のときだけ開く。既定は閉（未設定）。
+   * 詳細は src/ai/developerGate.ts / docs/AI_ARCHITECTURE.md。
    */
   readonly VITE_AI_FEATURES?: string;
 }

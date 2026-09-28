@@ -5,7 +5,7 @@
  * - Evidence に無い事実を含む AI 出力は採用しない
  * - Evidence が足りなければ Provider を呼ばず `insufficient-evidence` にする
  * - AI の返答内容によって engine の結果（推奨度・推奨ルート・残り・Bust・NEXT VISIT）が変わらない
- * - feature flag の既定は OFF
+ * - Developer Gate（開発者向け kill switch）の既定は閉。モデル未導入なら従来の説明
  */
 import { describe, expect, it, vi } from 'vitest';
 import { suggestFor } from '../engine/recovery/suggest';
@@ -16,7 +16,7 @@ import { advanceRound, createGame, submitScore, throwAt } from '../engine/simula
 import { buildGameReview } from '../engine/simulation/review';
 import { buildDecisionEvidence, buildGameReviewEvidence, buildTrainingEvidence } from './evidence';
 import { explainDecision, summarizeSession } from './explain';
-import { AI_FEATURES_DEFAULT_ENABLED, isAiFeatureEnabled } from './featureFlag';
+import { AI_DEVELOPER_GATE_DEFAULT_OPEN, isAiDeveloperGateOpen } from './developerGate';
 import {
   explainDecisionDeterministically,
   summarizeSessionDeterministically,
@@ -26,7 +26,8 @@ import type { AiProvider, AiResult, AiTextOutput, DecisionEvidence } from './typ
 import { checkDecisionEvidence, findUnsupportedClaims } from './validation';
 import { computeStats } from '../storage/trainingHistory';
 
-const ON = { enabled: true } as const;
+/** Developer Gate を開けた状態（モデルを選んだ場合の経路を試す）。 */
+const ON = { developerGate: true } as const;
 
 function providerOf(explain: AiProvider['explainDecision'], extra: Partial<AiProvider> = {}): AiProvider {
   return { id: 'test-provider', kind: 'browser-local', explainDecision: explain, ...extra };
@@ -68,29 +69,30 @@ function sampleGameReviewEvidence() {
   return buildGameReviewEvidence(buildGameReview(game));
 }
 
-describe('feature flag', () => {
-  it('既定は OFF', () => {
-    expect(AI_FEATURES_DEFAULT_ENABLED).toBe(false);
-    expect(isAiFeatureEnabled({})).toBe(false);
-    expect(isAiFeatureEnabled({ VITE_AI_FEATURES: 'off' })).toBe(false);
-    expect(isAiFeatureEnabled({ VITE_AI_FEATURES: '1' })).toBe(false);
-    expect(isAiFeatureEnabled({ VITE_AI_FEATURES: 'on' })).toBe(true);
+describe('Developer Gate とモデル未導入', () => {
+  it('Developer Gate（開発者向け kill switch）の既定は閉', () => {
+    expect(AI_DEVELOPER_GATE_DEFAULT_OPEN).toBe(false);
+    expect(isAiDeveloperGateOpen({})).toBe(false);
+    expect(isAiDeveloperGateOpen({ VITE_AI_FEATURES: 'off' })).toBe(false);
+    expect(isAiDeveloperGateOpen({ VITE_AI_FEATURES: '1' })).toBe(false);
+    expect(isAiDeveloperGateOpen({ VITE_AI_FEATURES: 'on' })).toBe(true);
     // このビルド（テスト環境）では設定していない。
-    expect(isAiFeatureEnabled()).toBe(false);
+    expect(isAiDeveloperGateOpen()).toBe(false);
   });
 
-  it('OFF のとき Provider を呼ばず、決定論的な説明を返す', async () => {
+  it('Developer Gate が閉じていれば、モデルがあっても Provider を呼ばず決定論的な説明を返す', async () => {
     const explain = vi.fn(async () => ({ text: '呼ばれてはいけない' }));
     const evidence = buildDecisionEvidence(suggestFor(116, 3));
     const result = await explainDecision(evidence, { provider: providerOf(explain) });
     expect(explain).not.toHaveBeenCalled();
-    expectFallback(result, 'disabled');
+    expectFallback(result, 'developer-gate-closed');
     if (result.status === 'ok') expect(result.text).toBe(explainDecisionDeterministically(evidence).text);
   });
 
-  it('ON でも Provider が無ければ決定論的な説明を返す', async () => {
+  it('モデルが未導入・未選択（Provider が無い）なら、従来の 01AS の説明を返す', async () => {
     const evidence = buildDecisionEvidence(suggestFor(116, 3));
-    expectFallback(await explainDecision(evidence, { ...ON, provider: null }), 'disabled');
+    expectFallback(await explainDecision(evidence, { ...ON, provider: null }), 'no-active-model');
+    expectFallback(await explainDecision(evidence, { ...ON }), 'no-active-model');
   });
 });
 
@@ -337,7 +339,7 @@ describe('決定論的な要約', () => {
   it('GAME REVIEW を Evidence の値だけで要約する', async () => {
     const evidence = sampleGameReviewEvidence();
     const result = await summarizeSession(evidence);
-    expectFallback(result, 'disabled');
+    expectFallback(result, 'developer-gate-closed');
     if (result.status === 'ok') {
       expect(result.text).toBe(summarizeSessionDeterministically(evidence).text);
       expect(result.text).toContain('100 スタート');
@@ -374,7 +376,7 @@ describe('決定論的な要約', () => {
     });
     const evidence = buildTrainingEvidence(stats);
     const result = await summarizeSession(evidence);
-    expectFallback(result, 'disabled');
+    expectFallback(result, 'developer-gate-closed');
     if (result.status === 'ok') {
       expect(result.text).toContain('3 問のうち 2 問が正解（正答率 67%）');
       expect(result.text).toContain('正答率が低い残り: 103');

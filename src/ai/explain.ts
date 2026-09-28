@@ -4,7 +4,7 @@
  * UI や将来の AI Coach は Provider を直接呼ばず、必ずここを通す。
  *
  *   1. Evidence を検証する（足りなければ `insufficient-evidence`。事実を補わない）
- *   2. feature flag が OFF / Provider 未設定なら、決定論的な説明を返す
+ *   2. Developer Gate が閉じている / 使用中のモデル（Provider）が無いなら、決定論的な説明を返す
  *   3. Provider を凍結した Evidence の複製で呼ぶ（タイムアウト付き）
  *   4. 返り値の形と、Evidence に無い主張が無いかを検証する
  *   5. どこかで失敗したら決定論的な説明へ切り替える
@@ -13,7 +13,7 @@
  * これまでどおり動く。返すのは説明文だけで、engine の結果を書き換える値は返さない。
  */
 import { deepFreeze } from './evidence';
-import { isAiFeatureEnabled } from './featureFlag';
+import { isAiDeveloperGateOpen } from './developerGate';
 import {
   explainDecisionDeterministically,
   summarizeSessionDeterministically,
@@ -41,10 +41,13 @@ import {
 export const DEFAULT_AI_TIMEOUT_MS = 8000;
 
 export interface ExplainOptions {
-  /** 使う Provider。未設定なら決定論的な説明だけを返す。 */
+  /**
+   * 使う Provider（選択中のローカルモデルから `resolveActiveProvider` で作ったもの）。
+   * モデルが未導入・未選択なら null / 省略で、決定論的な説明だけを返す。
+   */
   readonly provider?: AiProvider | null;
-  /** feature flag。省略時はビルド設定（既定 OFF）。 */
-  readonly enabled?: boolean;
+  /** Developer Gate（開発者向けの kill switch）。省略時はビルド設定（既定は閉）。 */
+  readonly developerGate?: boolean;
   readonly timeoutMs?: number;
 }
 
@@ -112,9 +115,10 @@ async function run<E extends AiEvidence>(
   const check = route.check(evidence);
   if (!check.ok) return { status: 'insufficient-evidence', missing: check.missing };
 
-  const enabled = options.enabled ?? isAiFeatureEnabled();
+  const gateOpen = options.developerGate ?? isAiDeveloperGateOpen();
+  if (!gateOpen) return fallbackResult(route, evidence, 'developer-gate-closed');
   const provider = options.provider ?? null;
-  if (!enabled || provider === null) return fallbackResult(route, evidence, 'disabled');
+  if (provider === null) return fallbackResult(route, evidence, 'no-active-model');
 
   const method = route.method(provider);
   if (typeof method !== 'function') return fallbackResult(route, evidence, 'unsupported');
