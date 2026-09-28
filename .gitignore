@@ -20,3 +20,5 @@ npm-debug.log*
 # 一次資料（添付Excel等）はリポジトリに含めない場合ここに追記する。
 # 現状 data/source/ は README のみを追跡する。
 dist-base-check
+dist-gate-open
+playwright-report-gate-open

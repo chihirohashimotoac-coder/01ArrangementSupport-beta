@@ -8,15 +8,19 @@
  *   - index.html / 404.html が参照する asset がすべて base 配下であること
  *   - webmanifest の start_url / scope / id が base 配下であること
  *   - Service Worker と precache manifest が base 配下を指していること
+ *   - Pages 用の設定（Developer Gate を開く）で、AI MODEL LAB と WebLLM の chunk が別に出力され、
+ *     precache に入らず、モデルのファイルが成果物に含まれないこと
+ *
+ * ビルド設定は deploy と同じ `scripts/lib/pagesBuild.mjs` の定義（base path ＋ VITE_AI_FEATURES=on）を使う。
  */
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_PAGES_BASE, buildInto, pagesBuildEnv } from './lib/pagesBuild.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const base = process.env.VITE_BASE_PATH ?? '/01ArrangementSupport-beta/';
+const base = process.env.VITE_BASE_PATH ?? DEFAULT_PAGES_BASE;
 /*
  * Production は同じ origin の /01ArrangementSupport/ で配信される。
  * Service Worker のスコープは URL の前方一致で決まるため、Beta の base が
@@ -38,14 +42,8 @@ check(
 );
 
 rmSync(outDir, { recursive: true, force: true });
-// Node's execFileSync does not resolve npx.cmd on Windows; invoke the locked local Vite directly.
-execFileSync(process.execPath, [resolve(root, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', outDir, '--emptyOutDir'], {
-  cwd: root,
-  env: { ...process.env, VITE_BASE_PATH: base },
-  stdio: 'inherit',
-});
-// デプロイと同じ成果物を作る。`npm run build` はこの手順で 404.html を用意する。
-execFileSync('node', ['scripts/copy-spa-fallback.mjs', outDir], { cwd: root, stdio: 'inherit' });
+// deploy と同じ設定（base path ＋ Developer Gate）で、deploy と同じ成果物（404.html を含む）を作る。
+buildInto(root, outDir, pagesBuildEnv(base));
 
 try {
   // index.html と、GitHub Pages の SPA フォールバックである 404.html の両方を見る。
@@ -150,6 +148,42 @@ try {
       swSource.includes('clientsClaim()'),
       'sw.js が clientsClaim() を呼びません（初回訪問がオフラインで動かなくなります）。',
     );
+  }
+
+  /*
+   * Pages 用の成果物は Developer Gate を開く。AI MODEL LAB と推論ライブラリ（WebLLM）は
+   * 遅延読み込みの別 chunk として出力され、Service Worker の precache に入らないこと。
+   * モデルのファイル（重み・model library）は成果物に含めない（利用者の明示操作で配布元から取得する）。
+   */
+  const assetNames = readdirSync(join(outDir, 'assets'));
+  const labChunk = assetNames.find((name) => /^AiModelLabPage-.*\.js$/.test(name));
+  const runtimeChunk = assetNames.find((name) => /^ai-runtime-webllm-.*\.js$/.test(name));
+  check(labChunk !== undefined, 'AI MODEL LAB の chunk（AiModelLabPage-*.js）が出力されていません。');
+  check(runtimeChunk !== undefined, 'WebLLM の chunk（ai-runtime-webllm-*.js）が出力されていません。');
+  if (existsSync(sw)) {
+    const swSource = readFileSync(sw, 'utf8');
+    for (const name of [labChunk, runtimeChunk].filter(Boolean)) {
+      check(!swSource.includes(name), `sw.js が ${name} を precache しています。`);
+    }
+    check(!/\.(wasm|bin|onnx|gguf|safetensors)"/.test(swSource), 'sw.js がモデルのファイルを precache しています。');
+  }
+  const modelFiles = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, name.name);
+      if (name.isDirectory()) walk(path);
+      else if (/\.(wasm|bin|onnx|gguf|safetensors|mlc)$/i.test(name.name)) modelFiles.push(path);
+    }
+  };
+  walk(outDir);
+  check(modelFiles.length === 0, `成果物にモデルのファイルがあります: ${modelFiles.join(', ')}`);
+  const entry = readFileSync(join(outDir, 'index.html'), 'utf8').match(/src="[^"]*\/assets\/(index-[^"]+\.js)"/)?.[1];
+  check(entry !== undefined, 'index.html から入口の JS が見つかりません。');
+  if (entry && runtimeChunk) {
+    // 入口の bundle は WebLLM を静的に読み込まない（Lab を開き、WebLLM の候補を選んだときだけ読む）。
+    const entrySource = readFileSync(join(outDir, 'assets', entry), 'utf8');
+    check(!new RegExp(`import[^;]*${runtimeChunk.replace(/\./g, '\\.')}`).test(entrySource.split('import(')[0]),
+      '入口の bundle が WebLLM を静的に import しています。');
   }
 
   // Service Worker の登録先も base 配下でなければならない。

@@ -226,6 +226,41 @@ describe('通信・秘密情報・AI 依存を持たない', () => {
     expect(readFileSync(allowed, 'utf8')).toMatch(/import\('@mlc-ai\/web-llm'\)/);
   });
 
+  it('WebLLM のキャッシュを一括削除しない（削除は対象モデル単位だけ）', () => {
+    // WebLLM のキャッシュ名（webllm/*）は固定で、同じ origin の別アプリと共有し得る（KNOWN LIMITATION）。
+    // 01AS からは Cache Storage・IndexedDB を丸ごと消さず、WebLLM のモデル単位の削除 API だけを使う。
+    const forbidden: readonly [RegExp, string][] = [
+      [/\bcaches\s*\.\s*delete\s*\(/, 'caches.delete()'],
+      [/\b(?:cache|cacheStorage|artifactCache)\s*\.\s*delete\s*\(/, 'Cache.delete()'],
+      [/\bindexedDB\s*\.\s*deleteDatabase\s*\(/, 'indexedDB.deleteDatabase()'],
+      [/\bgetDirectory\s*\(\s*\)[\s\S]{0,80}\bremove(?:Entry)?\s*\(/, 'OPFS の削除'],
+      [/\b(?:deleteModelInCache|deleteChatConfigInCache|deleteModelWasmInCache)\b/, 'WebLLM の部分削除 API（deleteModelAllInfoInCache に揃える）'],
+      [/\bclearSiteData\b|Clear-Site-Data/i, 'Clear-Site-Data'],
+    ];
+    const violations: string[] = [];
+    for (const file of [...aiSources, ...sourceFiles(LAB_DIR).filter((path) => !isTest(path))]) {
+      const source = readFileSync(file, 'utf8');
+      for (const [pattern, label] of forbidden) {
+        if (pattern.test(source)) violations.push(`${relative(ROOT, file)}: ${label}`);
+      }
+    }
+    expect(violations).toEqual([]);
+    // WebLLM の削除は deleteModelAllInfoInCache(対象モデルの ID) の 1 か所だけ。
+    const runtime = readFileSync(join(AI_DIR, 'benchmark', 'runtimes', 'webllmRuntime.ts'), 'utf8');
+    expect([...runtime.matchAll(/\.deleteModelAllInfoInCache\(([^,)]+)/g)].map((match) => match[1].trim())).toEqual([
+      'modelId',
+    ]);
+  });
+
+  it('モデルを直接呼ぶ（runtime.generate）のは Benchmark の runner だけ（explain.ts を通さない唯一の例外）', () => {
+    const allowed = new Set([join(AI_DIR, 'benchmark', 'runner.ts')]);
+    const violations = sourceFiles(SRC)
+      .filter((file) => !isTest(file) && !allowed.has(file))
+      .filter((file) => /\.generate\s*\(/.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(ROOT, file));
+    expect(violations).toEqual([]);
+  });
+
   it('具体的なモデル名をアプリのコードへ書かない（候補・カタログのデータにだけ書く）', () => {
     // 利用者向けの Model Catalog は空のまま。モデル名は Benchmark の候補データにだけ現れる。
     const allowed = new Set([join(AI_DIR, 'benchmark', 'candidates.ts')]);

@@ -12,6 +12,8 @@
  *   （実験中の不具合時に、ビルド単位で AI を止めるための開発者用の非常停止）
  *
  * ビルド時の環境変数 `VITE_AI_FEATURES=on` のときだけ開く。既定は閉（未設定）。
+ * 通常の CI・ローカルのビルドは閉。Beta の GitHub Pages 成果物に限って開く（`scripts/lib/pagesBuild.mjs`）。
+ * 開いたビルドでは、設定画面に開発者向けの AI MODEL LAB の入口が出る。一般ユーザー向けの画面は
  * 実モデルが導入されていない現時点では、開いていても挙動は変わらない。
  */
 export interface DeveloperGateEnv {

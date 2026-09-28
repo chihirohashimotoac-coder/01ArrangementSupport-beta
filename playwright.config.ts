@@ -13,6 +13,8 @@ const HOST = '127.0.0.1';
 
 export default defineConfig({
   testDir: './e2e',
+  // Gate を開いた Pages 用成果物の E2E は別の設定（playwright.gate-open.config.ts）で行う。
+  testIgnore: ['**/gate-open/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

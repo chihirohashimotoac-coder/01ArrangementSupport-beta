@@ -64,27 +64,37 @@ jobs:
       - name: SIMULATION review alignment audit
         run: npm run audit:review
 
-      # E2E はルートパス（base = /）のビルドに対して実行する
-      - name: Build (for E2E)
+      # E2E はルートパス（base = /）のビルドに対して実行する。
+      # 通常の CI は Developer Gate を閉じたまま（VITE_AI_FEATURES 未設定）で検査する。
+      - name: Build (for E2E, Developer Gate closed)
         run: npm run build
 
-      # E2E は base = / でしか動かないため、GitHub Pages のサブパス配信は
+      # 通常の E2E は base = / で動かすため、GitHub Pages のサブパス配信は
       # ビルド成果物の静的検証で担保する（asset / manifest / Service Worker）。
+      # 検証するのは Pages と同じ設定（base path ＋ VITE_AI_FEATURES=on。scripts/lib/pagesBuild.mjs）。
       - name: Validate GitHub Pages base path build
         run: npm run check:base
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: E2E tests
+      - name: E2E tests (Developer Gate closed)
         run: npm run test:e2e
+
+      # GitHub Pages へ出すのと同じ設定（base path ＋ VITE_AI_FEATURES=on）でビルドし、
+      # その成果物を base path で配信して AI MODEL LAB の入口・遅延読み込み・precache 除外・
+      # 「明示操作なしにモデルを取得しない」を確かめる。実モデルは取得しない（外部通信は遮断して検出）。
+      - name: E2E tests (Developer Gate open, GitHub Pages build)
+        run: npm run test:e2e:gate-open
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: playwright-report
+          path: |
+            playwright-report
+            playwright-report-gate-open
           retention-days: 7
 
   build-pages:
@@ -116,8 +126,10 @@ jobs:
             echo "path=/$repo/" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build
-        run: npm run build
+      # Beta の Pages 成果物に限って Developer Gate を開く（AI MODEL LAB を使える）。
+      # base path（repository 名から算出）と VITE_AI_FEATURES=on を同時に反映する（scripts/lib/pagesBuild.mjs）。
+      - name: Build (GitHub Pages, Developer Gate open)
+        run: npm run build:pages
         env:
           VITE_BASE_PATH: ${{ steps.base.outputs.path }}
 

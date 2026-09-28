@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:gate-open": "node scripts/e2e-gate-open.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
     "icons": "python3 scripts/generate-icons.py",
     "import:checkout": "node scripts/import-checkout-excel.mjs",
     "check:base": "node scripts/check-base-path.mjs",
