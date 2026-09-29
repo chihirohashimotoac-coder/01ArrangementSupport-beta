@@ -50,16 +50,46 @@ export function loadRuns(): BenchmarkRun[] {
   return Array.isArray(runs) ? runs.filter(isRun) : [];
 }
 
-/** 新しい run を先頭に足して保存する。保存できなかったら false（画面の結果はそのまま使える）。 */
-export function saveRun(run: BenchmarkRun): { runs: BenchmarkRun[]; saved: boolean } {
-  const runs = [run, ...loadRuns().filter((item) => item.runId !== run.runId)].slice(0, MAX_STORED_RUNS);
-  return { runs, saved: writeJson(BENCHMARK_RUNS_KEY, { version: 1, runs }) };
+/**
+ * 新しい run を先頭に足して保存する。保存できなかったら false（画面の結果はそのまま使える）。
+ *
+ * 件数の上限を超えたら古い run から外すが、`keepRunId`（再評価の元の run）は外さない
+ * （再評価の結果と比べる元の run を失わないため）。
+ */
+export function saveRun(run: BenchmarkRun, options: { readonly keepRunId?: string } = {}): { runs: BenchmarkRun[]; saved: boolean } {
+  const others = loadRuns().filter((item) => item.runId !== run.runId);
+  const kept: BenchmarkRun[] = [run];
+  const reserved = options.keepRunId !== undefined && others.some((item) => item.runId === options.keepRunId) ? 1 : 0;
+  let room = MAX_STORED_RUNS - 1 - reserved;
+  for (const item of others) {
+    if (item.runId === options.keepRunId) kept.push(item);
+    else if (room > 0) {
+      kept.push(item);
+      room -= 1;
+    }
+  }
+  return { runs: kept, saved: writeJson(BENCHMARK_RUNS_KEY, { version: 1, runs: kept }) };
 }
 
 export function deleteRun(runId: string): BenchmarkRun[] {
   const runs = loadRuns().filter((run) => run.runId !== runId);
   writeJson(BENCHMARK_RUNS_KEY, { version: 1, runs });
   return runs;
+}
+
+// ---------------------------------------------------------------------------
+// 選んでいる Benchmark Profile（画面の選択を覚えるだけ）
+// ---------------------------------------------------------------------------
+
+export const BENCHMARK_PROFILE_KEY = namespacedKey('ai.benchmark.profile.v1');
+
+export function loadProfileId(): string | null {
+  const stored = readJson<unknown>(BENCHMARK_PROFILE_KEY, null);
+  return typeof stored === 'string' ? stored : null;
+}
+
+export function saveProfileId(profileId: string): void {
+  writeJson(BENCHMARK_PROFILE_KEY, profileId);
 }
 
 // ---------------------------------------------------------------------------

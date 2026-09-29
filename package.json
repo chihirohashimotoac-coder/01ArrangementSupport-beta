@@ -21,7 +21,8 @@
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
     "audit:training": "vite-node scripts/audit-training.ts",
     "audit:simulation": "vite-node scripts/audit-simulation.ts",
-    "audit:review": "vite-node scripts/audit-review.ts"
+    "audit:review": "vite-node scripts/audit-review.ts",
+    "reevaluate:benchmark": "vite-node scripts/reevaluate-benchmark.ts"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.85",

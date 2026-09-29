@@ -9,7 +9,7 @@
  * - 中断（signal）されたら、その時点までの結果を返す
  * - 時刻は `now` から読む（テストでは偽の時計を渡して決定論的にする）
  */
-import { inspectOutput } from './checks';
+import { BENCHMARK_VALIDATOR_VERSION, inspectOutput } from './checks';
 import { fingerprint } from './hash';
 import { buildPrompt, PROMPT_VERSION_LABEL } from './prompt';
 import type {
@@ -17,6 +17,7 @@ import type {
   BenchmarkCase,
   BenchmarkDataset,
   BenchmarkRun,
+  BenchmarkRunProfile,
   BenchmarkRuntime,
   CaseResult,
   GenerationRecord,
@@ -47,8 +48,20 @@ export interface RunBenchmarkInput {
   readonly now?: () => number;
   /** ISO 時刻。省略時は `new Date(now())`。 */
   readonly clockIso?: () => string;
+  /**
+   * 実行した Benchmark Profile（`profiles.ts`）の記録。省略時は STANDARD
+   * （runner は profile の値を読まない。`settings` は呼び出し側が profile から作って渡す）。
+   */
+  readonly profile?: BenchmarkRunProfile;
+  /** 各ケースの生成を始める直前（crash checkpoint 用。Lab が小さく保存する）。 */
+  readonly onCaseStart?: (benchmarkCase: BenchmarkCase, index: number, total: number, runId: string) => void;
+  /** 各ケースの生成が返った直後・検証の前（crash checkpoint 用）。 */
+  readonly onCaseGenerated?: (benchmarkCase: BenchmarkCase, index: number, total: number, runId: string) => void;
   readonly onCaseComplete?: (result: CaseResult, index: number, total: number) => void;
 }
+
+/** profile を渡さない呼び出し（STANDARD と同じ条件）の記録。 */
+export const STANDARD_RUN_PROFILE: BenchmarkRunProfile = { id: 'STANDARD', version: 1, contextWindowSize: null, stage: null };
 
 class CaseTimeoutError extends Error {}
 
@@ -95,6 +108,11 @@ function failedResult(
     timeToFirstVisibleTokenMs: null,
     generationTimeMs: null,
     tokensPerSecond: null,
+    finishReason: null,
+    repetition: null,
+    outputLimit: null,
+    internalCodeLeaks: [],
+    failureCodes: [timedOut ? 'TIMEOUT' : 'GENERATION_ERROR'],
   };
 }
 
@@ -144,7 +162,9 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
     : dataset.cases;
 
   const startedAt = clockIso();
-  const runId = `${candidate.id}|${runtime.id}|thinking-${settings.thinking}|${startedAt}`;
+  const profile = input.profile ?? STANDARD_RUN_PROFILE;
+  const profileTag = profile.id === STANDARD_RUN_PROFILE.id ? '' : `|${profile.id}@${profile.version}`;
+  const runId = `${candidate.id}|${runtime.id}|thinking-${settings.thinking}${profileTag}|${startedAt}`;
   const results: CaseResult[] = [];
   let aborted = false;
 
@@ -156,9 +176,15 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
     const prompt = buildPrompt(benchmarkCase);
     const responseId = responseIdOf(runId, benchmarkCase.id);
     let result: CaseResult;
+    input.onCaseStart?.(benchmarkCase, index, selected.length, runId);
     try {
       const record = await generateWithTimeout(runtime, benchmarkCase, prompt.messages, settings, input.signal);
-      const evaluation = inspectOutput(record.rawText, benchmarkCase.input, settings.thinking);
+      input.onCaseGenerated?.(benchmarkCase, index, selected.length, runId);
+      const evaluation = inspectOutput(record.rawText, benchmarkCase.input, settings.thinking, {
+        finishReason: record.finishReason,
+        outputTokens: record.outputTokens,
+        maxTokens: settings.maxTokens,
+      });
       result = {
         caseId: benchmarkCase.id,
         category: benchmarkCase.category,
@@ -182,6 +208,11 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
         timeToFirstVisibleTokenMs: record.timeToFirstVisibleTokenMs,
         generationTimeMs: record.generationTimeMs,
         tokensPerSecond: tokensPerSecondOf(record),
+        finishReason: record.finishReason,
+        repetition: evaluation.repetition,
+        outputLimit: evaluation.outputLimit,
+        internalCodeLeaks: evaluation.internalCodeLeaks,
+        failureCodes: evaluation.failureCodes,
       };
     } catch (error) {
       if (input.signal?.aborted) {
@@ -193,6 +224,12 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
     }
     results.push(result);
     input.onCaseComplete?.(result, index, selected.length);
+    // 中止を頼まれたあとで生成が普通に返っても（Runtime がすぐ止まらないことがある）、中止として終える
+    // （最後のケースで中止した run を、中止されなかった run にしない）。
+    if (input.signal?.aborted) {
+      aborted = true;
+      break;
+    }
   }
 
   return {
@@ -215,5 +252,7 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
     device: input.device ?? null,
     aborted,
     results,
+    validatorVersion: BENCHMARK_VALIDATOR_VERSION,
+    profile,
   };
 }

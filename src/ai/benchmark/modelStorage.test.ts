@@ -9,6 +9,7 @@ import { BASELINE_CANDIDATE } from './candidates';
 import {
   classifyModelLoadFailure,
   describeModelLoadFailure,
+  isPostStoreReadFailure,
   MODEL_LOAD_FAILURE_CLASSES,
   type ModelLoadFailureDiagnostics,
 } from './modelLoadFailure';
@@ -400,6 +401,37 @@ describe('取得・読み込みの失敗の分類', () => {
     expect(classifyModelLoadFailure('plain string', { backend: null, aborted: false })).toBe('unknown');
   });
 
+  it('IndexedDB で 30/30 shard を取得した後の読み戻しの失敗は storage-failed（network-failed にしない）', () => {
+    const indexeddb = { backend: 'indexeddb' as const, aborted: false };
+    const shard = 'https://example.test/resolve/main/params_shard_0.bin';
+    // WebLLM 0.2.85 の ArtifactIndexedDBCache.fetchWithCache が投げる文面（PC 実機で観測したもの）。
+    const readBack = new Error(`ArtifactIndexedDBCache failed to fetch: ${shard}`);
+    expect(isPostStoreReadFailure(readBack, 'indexeddb')).toBe(true);
+    expect(classifyModelLoadFailure(readBack, indexeddb)).toBe('storage-failed');
+    // OPFS・Cache API の同じ段階の失敗も保存領域の失敗。
+    expect(classifyModelLoadFailure(new Error(`ArtifactOPFSCache failed to fetch: ${shard}`), opfs)).toBe('storage-failed');
+    expect(classifyModelLoadFailure(new Error(`Cannot fetch ${shard}`), cache)).toBe('storage-failed');
+  });
+
+  it('本物の通信の失敗（取得の失敗・HTTP の失敗・接続の失敗）は network-failed のまま', () => {
+    const indexeddb = { backend: 'indexeddb' as const, aborted: false };
+    const shard = 'https://example.test/resolve/main/params_shard_0.bin';
+    // IndexedDB の addToCache は、取得の失敗を「Failed to store … with error: …」で包んで投げる。
+    expect(classifyModelLoadFailure(new Error(`Failed to store ${shard} with error: TypeError: Failed to fetch`), indexeddb))
+      .toBe('network-failed');
+    expect(classifyModelLoadFailure(new Error(`Failed to store ${shard} with error: Error: Network response was not ok`), indexeddb))
+      .toBe('network-failed');
+    expect(classifyModelLoadFailure(new TypeError('Failed to fetch'), indexeddb)).toBe('network-failed');
+    expect(classifyModelLoadFailure(new TypeError('Load failed'), indexeddb)).toBe('network-failed');
+    expect(classifyModelLoadFailure(new Error('net::ERR_CONNECTION_RESET'), indexeddb)).toBe('network-failed');
+    expect(classifyModelLoadFailure(new Error(`ArtifactOPFSCache: Unable to fetch ${shard}, received status 503`), opfs))
+      .toBe('network-failed');
+    // 文の途中に同じ語があっても、先頭が読み戻しの形でなければ読み戻しとはみなさない。
+    expect(isPostStoreReadFailure(new Error(`Error: ArtifactIndexedDBCache failed to fetch: ${shard}`), 'indexeddb')).toBe(false);
+    // Cache API の読み戻しの形は、Cache API のときだけ。
+    expect(isPostStoreReadFailure(new Error(`Cannot fetch ${shard}`), 'indexeddb')).toBe(false);
+  });
+
   const diagnostics = (overrides: Partial<ModelLoadFailureDiagnostics>): ModelLoadFailureDiagnostics => ({
     schema: '01as-ai-model-load-failure',
     schemaVersion: 1,
@@ -436,6 +468,18 @@ describe('取得・読み込みの失敗の分類', () => {
 
     const gpu = describeModelLoadFailure(diagnostics({ failureClass: 'gpu-load-failed', storageBackend: 'opfs' }), { opfsAvailable: true });
     expect(gpu.linesJa.join('\n')).toContain('保存領域の問題ではありません');
+  });
+
+  it('読み戻しの失敗は「通信の失敗ではない」と示し、原因は断定しない', () => {
+    const readBack = describeModelLoadFailure(
+      diagnostics({ failureClass: 'storage-failed', storageBackend: 'indexeddb', progressFraction: 1, postStoreReadFailure: true }),
+      { opfsAvailable: true },
+    );
+    const text = readBack.linesJa.join('\n');
+    expect(text).toContain('通信の失敗ではありません');
+    expect(text).toContain('可能性');
+    expect(text).toContain('断定できません');
+    expect(readBack.suggestOpfs).toBe(true);
   });
 
   it('すべての区分に説明がある', () => {

@@ -16,7 +16,13 @@
 import { canonicalClaimText, checkOutputShape, findUnsupportedClaims } from '../validation';
 import type { AiEvidence, DecisionEvidence, GameReviewEvidence, RouteEvidence } from '../types';
 import { TARGET_EXPLANATION_CHARS } from './prompt';
-import type { BenchmarkInput, StyleFlags, ThinkingMode } from './types';
+import type {
+  BenchmarkInput,
+  OutputLimitFinding,
+  StyleFlags,
+  ThinkingMode,
+  ValidationFailureCode,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // thinking の分離
@@ -284,8 +290,160 @@ export function styleFlagsOf(visible: VisibleText, thinking: ThinkingMode): Styl
 }
 
 // ---------------------------------------------------------------------------
+// 反復（repetition）
+// ---------------------------------------------------------------------------
+
+/**
+ * 反復の判定の規則（しきい値はテストで固定する。`checks.test.ts`）。
+ *
+ * 正常なダーツの表現（`T20 → T20 → D20`・「T20 を 2 本」・同じ的に 2 回触れる）は誤検出しないよう、
+ * 「単語が 2 回出た」ではなく、**1 ビジット（最大 3 本）や Evidence（GAME REVIEW の投は最大 12 件）では
+ * 起こり得ない長さ**の繰り返しだけを拾う。
+ */
+export const REPETITION_RULES = {
+  /** 的の列の周期（1〜4 本の並び）の上限。 */
+  dartPeriodMax: 4,
+  /** 同じ並びが連続する回数の下限。 */
+  dartMinRepeats: 3,
+  /** 繰り返した部分の的の本数の下限（3 本のビジットを 2 回並べても 6 本なので届かない）。 */
+  dartMinSpan: 8,
+  /** 1 つの列に並ぶ的の本数の上限を超えたら反復とみなす（Evidence の投は最大 12 件）。 */
+  longDartList: 16,
+  /** 連続して繰り返す文字列の長さ（空白を除いた文字数）。 */
+  substringMinLength: 8,
+  substringMaxLength: 80,
+  /** 同じ文字列が連続する回数の下限。 */
+  substringMinRepeats: 3,
+  /** 同じ文（空白を除いて 8 文字以上）が現れる回数の下限。2 回までは言い直しとして許す。 */
+  sentenceMinLength: 8,
+  sentenceMinRepeats: 3,
+} as const;
+
+function periodicRunOf(darts: readonly string[]): { period: number; repeats: number; start: number } | null {
+  const rules = REPETITION_RULES;
+  for (let period = 1; period <= rules.dartPeriodMax; period += 1) {
+    for (let start = 0; start + period * rules.dartMinRepeats <= darts.length; start += 1) {
+      let repeats = 1;
+      while (start + (repeats + 1) * period <= darts.length &&
+        darts.slice(start + repeats * period, start + (repeats + 1) * period)
+          .every((id, offset) => id === darts[start + offset])) {
+        repeats += 1;
+      }
+      if (repeats >= rules.dartMinRepeats && repeats * period >= rules.dartMinSpan) return { period, repeats, start };
+    }
+  }
+  return null;
+}
+
+/**
+ * 不自然な反復を探す（`S20、S18、S20、S18…` のような暴走・同じ文字列や文の繰り返し）。無ければ null。
+ */
+export function detectRepetition(text: string): string | null {
+  const rules = REPETITION_RULES;
+  const canonical = canonicalClaimText(text);
+
+  // 1. 的の列（「、」「→」などでつながった並び）。
+  for (const sequence of sequencesOf(canonical)) {
+    if (sequence.darts.length >= rules.longDartList) {
+      return `的の列が長すぎます（${sequence.darts.length} 本: ${sequence.darts.slice(0, 6).join('、')}…）`;
+    }
+    const run = periodicRunOf(sequence.darts);
+    if (run) {
+      const unit = sequence.darts.slice(run.start, run.start + run.period).join('、');
+      return `同じ的の並びが繰り返しています（${unit} × ${run.repeats} 回）`;
+    }
+  }
+
+  // 2. 同じ文字列が連続する（空白を除いて比べる）。
+  const compact = canonical.replace(/\s+/g, '');
+  const substring = new RegExp(
+    `(.{${rules.substringMinLength},${rules.substringMaxLength}}?)\\1{${rules.substringMinRepeats - 1},}`,
+    'su',
+  ).exec(compact);
+  if (substring) {
+    return `同じ文字列が繰り返しています（「${substring[1].slice(0, 20)}」× ${Math.floor(substring[0].length / substring[1].length)} 回）`;
+  }
+
+  // 3. 同じ文が何度も現れる（離れていても数える）。
+  const counts = new Map<string, number>();
+  for (const sentence of canonical.split(/[。！？!?\n]+/)) {
+    const key = sentence.replace(/\s+/g, '');
+    if (key.length < rules.sentenceMinLength) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const [sentence, count] of counts) {
+    if (count >= rules.sentenceMinRepeats) return `同じ文が ${count} 回現れます（「${sentence.slice(0, 20)}」）`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 出力の上限（output limit / truncation）
+// ---------------------------------------------------------------------------
+
+/**
+ * finish_reason が分からないとき、出力トークン数が `maxTokens - この値` 以上なら上限に達したとみなす（安全側）。
+ * 実測（max_tokens 384）で 379〜384 tokens に張り付いた応答があったため、少し手前から拾う。
+ */
+export const OUTPUT_LIMIT_TOKEN_MARGIN = 8;
+
+export interface GenerationFacts {
+  /** Runtime が返した finish_reason。分からなければ null。 */
+  readonly finishReason: string | null;
+  readonly outputTokens: number | null;
+  readonly maxTokens: number;
+}
+
+/**
+ * 生成が出力の上限で打ち切られたか。Runtime の finish_reason を優先し、分からないときだけトークン数で判断する。
+ * WebLLM 0.2.85 は max_tokens・context window のどちらで止まっても `finish_reason: "length"` を返す。
+ */
+export function detectOutputLimit(facts: GenerationFacts): OutputLimitFinding | null {
+  if (facts.finishReason === 'length') {
+    return { basis: 'finish-reason', outputTokens: facts.outputTokens, maxTokens: facts.maxTokens };
+  }
+  if (facts.finishReason === null && facts.outputTokens !== null &&
+    facts.outputTokens >= facts.maxTokens - OUTPUT_LIMIT_TOKEN_MARGIN) {
+    return { basis: 'token-count', outputTokens: facts.outputTokens, maxTokens: facts.maxTokens };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 内部の reason code の漏れ
+// ---------------------------------------------------------------------------
+
+/**
+ * 内部の code の形（大文字・数字を `_` でつないだもの。例: `STANDARD_ROUTE`・`GOOD_DECISION`・`LEAVES_CHECKOUTABLE`）。
+ * `_` を 1 つ以上含むものだけを拾うので、的（`T20`・`D16`・`S5`・`BULL`・`S-BULL`・`SB`）や
+ * 画面の用語（`PPR`・`BUST`・`NEXT VISIT`・`GOOD`・`BETTER`）は形の上で当たらない。
+ * 検証用の正規化（NFKC・大文字化）のあとで調べるので、全角・小文字（`good_decision`）でも拾う。
+ */
+export const INTERNAL_CODE_PATTERN = /(?<![A-Z0-9_])[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+(?![A-Z0-9_])/g;
+
+/**
+ * 形は内部の code でも、利用者向けの文に出てよい語。現時点では**該当なし**（01AS の画面の用語に `_` を含む語は無い）。
+ * 追加するときは理由とテストを添える。
+ */
+export const INTERNAL_CODE_ALLOWLIST: ReadonlySet<string> = new Set<string>();
+
+/** 本文に出た内部の code（重複を除く）。 */
+export function findInternalCodeLeaks(text: string): string[] {
+  const found = [...canonicalClaimText(text).matchAll(INTERNAL_CODE_PATTERN)].map((match) => match[0]);
+  return [...new Set(found)].filter((code) => !INTERNAL_CODE_ALLOWLIST.has(code));
+}
+
+// ---------------------------------------------------------------------------
 // まとめ
 // ---------------------------------------------------------------------------
+
+/**
+ * 自動検証の版。検証の規則を変えたら上げる（run に記録し、古い run は再評価で新しい版の結果を別に作る）。
+ *
+ * - 1: 形・unsupported claim・engine contradiction（PR #2〜#4）
+ * - 2: 反復・出力の上限・内部の code の漏れを追加（PR #5）
+ */
+export const BENCHMARK_VALIDATOR_VERSION = 2;
 
 export interface OutputInspection {
   readonly text: string;
@@ -294,6 +452,10 @@ export interface OutputInspection {
   readonly contradictions: readonly string[];
   readonly style: StyleFlags;
   readonly mentionsTopTarget: boolean | null;
+  readonly repetition: string | null;
+  readonly outputLimit: OutputLimitFinding | null;
+  readonly internalCodeLeaks: readonly string[];
+  readonly failureCodes: readonly ValidationFailureCode[];
   readonly validationPassed: boolean;
 }
 
@@ -302,13 +464,34 @@ function topTargetOf(input: BenchmarkInput): string | null {
   return topRouteOf(input.decision)?.dartIds[0] ?? null;
 }
 
-/** 1 件の出力を検証する。形 → 根拠 → 矛盾の順に見て、すべて通れば合格。 */
-export function inspectOutput(rawText: string, input: BenchmarkInput, thinking: ThinkingMode): OutputInspection {
+/**
+ * 1 件の出力を検証する。形 → 根拠 → 矛盾を見て、反復・出力の上限・内部の code の漏れも調べる。
+ * すべて通れば合格（`failureCodes` が空）。
+ *
+ * `generation` は Runtime の finish_reason・出力トークン数と、その run の max_tokens。
+ * 省略すると出力の上限は調べない（Runtime の情報が無い呼び出し。Benchmark の runner・再評価は必ず渡す）。
+ */
+export function inspectOutput(
+  rawText: string,
+  input: BenchmarkInput,
+  thinking: ThinkingMode,
+  generation?: GenerationFacts,
+): OutputInspection {
   const visible = splitThinking(rawText);
   const shapeProblem = checkOutputShape({ text: visible.text }) ??
     (visible.malformedThinking ? 'think タグが閉じていません。' : null);
   const unsupportedClaims = shapeProblem === null ? findBenchmarkUnsupportedClaims(visible.text, input) : [];
   const contradictions = shapeProblem === null ? findContradictions(visible.text, input) : [];
+  const repetition = detectRepetition(visible.text);
+  const outputLimit = generation ? detectOutputLimit(generation) : null;
+  const internalCodeLeaks = findInternalCodeLeaks(visible.text);
+  const failureCodes: ValidationFailureCode[] = [];
+  if (shapeProblem !== null) failureCodes.push('SHAPE_PROBLEM');
+  if (contradictions.length > 0) failureCodes.push('ENGINE_CONTRADICTION');
+  if (unsupportedClaims.length > 0) failureCodes.push('UNSUPPORTED_CLAIM');
+  if (repetition !== null) failureCodes.push('REPETITION');
+  if (outputLimit !== null) failureCodes.push('OUTPUT_LIMIT_REACHED');
+  if (internalCodeLeaks.length > 0) failureCodes.push('INTERNAL_CODE_LEAK');
   const topTarget = topTargetOf(input);
   return {
     text: visible.text,
@@ -319,6 +502,10 @@ export function inspectOutput(rawText: string, input: BenchmarkInput, thinking: 
     mentionsTopTarget: topTarget === null
       ? null
       : sequencesOf(canonicalClaimText(visible.text)).some((sequence) => sequence.darts.includes(topTarget)),
-    validationPassed: shapeProblem === null && unsupportedClaims.length === 0 && contradictions.length === 0,
+    repetition,
+    outputLimit,
+    internalCodeLeaks,
+    failureCodes,
+    validationPassed: failureCodes.length === 0,
   };
 }

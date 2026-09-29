@@ -160,9 +160,12 @@ try {
   const runtimeChunk = assetNames.find((name) => /^ai-runtime-webllm-.*\.js$/.test(name));
   check(labChunk !== undefined, 'AI MODEL LAB の chunk（AiModelLabPage-*.js）が出力されていません。');
   check(runtimeChunk !== undefined, 'WebLLM の chunk（ai-runtime-webllm-*.js）が出力されていません。');
+  // E2E 用の Test Runtime（Mock）は Lab から動的 import する別 chunk で、precache しない。
+  const testRuntimeChunk = assetNames.find((name) => /^labTestRuntime-.*\.js$/.test(name));
+  check(testRuntimeChunk !== undefined, 'E2E 用の Test Runtime の chunk（labTestRuntime-*.js）が出力されていません。');
   if (existsSync(sw)) {
     const swSource = readFileSync(sw, 'utf8');
-    for (const name of [labChunk, runtimeChunk].filter(Boolean)) {
+    for (const name of [labChunk, runtimeChunk, testRuntimeChunk].filter(Boolean)) {
       check(!swSource.includes(name), `sw.js が ${name} を precache しています。`);
     }
     check(!/\.(wasm|bin|onnx|gguf|safetensors)"/.test(swSource), 'sw.js がモデルのファイルを precache しています。');

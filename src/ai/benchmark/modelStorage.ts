@@ -326,6 +326,55 @@ export async function measureModelBytes(
   }
 }
 
+/**
+ * その方式に残っている、そのモデルの項目（ファイル）の数。**読むだけ**（作成・削除しない）。
+ * 取得が途中で止まったモデルの残り（partial）を見分けるために使う（WebLLM の存在確認は、すべてそろわないと「無い」と答える）。
+ *
+ * - OPFS: WebLLM の記録（`.record.json`）のうち、そのモデルの URL のものの数
+ * - Cache API: `webllm/{model,config,wasm}` の鍵のうち、そのモデルの URL のものの数
+ * - IndexedDB: 数えない（null）
+ */
+export async function countModelEntries(
+  backend: ModelStorageBackend,
+  location: ModelLocation,
+  env: StorageEnvironment,
+): Promise<number | null> {
+  try {
+    if (backend === 'opfs') {
+      if (!env.storageManager) return 0;
+      let count = 0;
+      for (const scope of WEBLLM_STORE_SCOPES) {
+        const directory = await openOpfsScope(env.storageManager, scope);
+        if (directory === null) continue;
+        if (typeof directory.keys !== 'function') return null;
+        for await (const name of directory.keys()) {
+          if (!name.endsWith(OPFS_RECORD_SUFFIX)) continue;
+          try {
+            const record = JSON.parse(await (await (await directory.getFileHandle(name)).getFile()).text()) as { url?: unknown };
+            if (typeof record.url === 'string' && belongsTo(record.url, location)) count += 1;
+          } catch {
+            // 読めない記録は数えない
+          }
+        }
+      }
+      return count;
+    }
+    if (backend === 'cache') {
+      if (!env.cacheStorage) return 0;
+      let count = 0;
+      for (const scope of WEBLLM_STORE_SCOPES) {
+        if (!(await env.cacheStorage.has(scope))) continue;
+        const cache = await env.cacheStorage.open(scope);
+        count += (await cache.keys()).filter((request) => belongsTo(request.url, location)).length;
+      }
+      return count;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // origin 全体の保存状況（Storage Diagnostics）
 // ---------------------------------------------------------------------------
