@@ -263,3 +263,8 @@
   color: var(--danger);
   font-size: 0.85em;
 }
+
+/* 長い選択肢（Profile・Run の一覧）でスマートフォンの幅を超えない */
+.lab__field select {
+  max-width: 100%;
+}

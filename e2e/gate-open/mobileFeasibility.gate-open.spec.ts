@@ -74,6 +74,9 @@ test('Profile を選び、LOAD ONLY → 1 CASE → QUICK 10 を段階的に実�
   await expect(page.getByTestId('lab-profile-warning')).toContainText('品質の benchmark ではありません');
   await expect(page.getByTestId('lab-run')).toHaveCount(0);
   await expect(page.getByTestId('lab-stage-run-ONE_CASE')).toContainText('非推奨');
+  // スマートフォンの幅で横にはみ出さない（長い選択肢で layout viewport が広がると、ボタンが押せなくなる）。
+  const width = page.viewportSize()?.width ?? 0;
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 
   await page.getByTestId('lab-stage-run-LOAD_ONLY').click();
   await expect(page.getByTestId('lab-stage-last-LOAD_ONLY')).toContainText('前回: 成功');

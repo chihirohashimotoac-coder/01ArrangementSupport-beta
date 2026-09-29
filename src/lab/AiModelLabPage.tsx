@@ -1230,7 +1230,8 @@ export default function AiModelLabPage({
             >
               {BENCHMARK_PROFILES.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.labelJa}
+                  {item.id}
+                  {item.qualityBenchmark ? '' : '（動作確認）'}
                 </option>
               ))}
             </select>
@@ -1239,11 +1240,15 @@ export default function AiModelLabPage({
         <dl className="lab__facts" data-testid="lab-profile-facts">
           <dt>Profile</dt>
           <dd data-testid="lab-profile">{profile.id} v{profile.version}</dd>
+          <dt>位置づけ</dt>
+          <dd>{profile.labelJa}</dd>
           <dt>目的</dt>
           <dd>{profile.purposeJa}</dd>
           <dt>Context window</dt>
           <dd data-testid="lab-profile-context">
-            {profile.contextWindowSize === null
+            {candidate.runtime === 'deterministic'
+              ? '—（モデルなし）'
+              : profile.contextWindowSize === null
               ? `Runtime の既定（${candidate.contextWindow ?? '不明'}）`
               : `${profile.contextWindowSize}（WebLLM の context_window_size を上書き。KV cache を小さくする）`}
           </dd>
