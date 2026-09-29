@@ -48,9 +48,14 @@ Comparable Result（BenchmarkRun。JSON / CSV export・人手評価）
 | `src/ai/benchmark/prompt.ts` | 版管理したプロンプト（`PROMPT_VERSION`） |
 | `src/ai/benchmark/tags.ts` | 観点タグを Evidence から機械的に導く |
 | `src/ai/benchmark/dataset.ts` | ケースの組み立て・指紋（dataset fingerprint） |
-| `src/ai/benchmark/checks.ts` | 自動検証（contradiction・unsupported claim・thinking・体裁） |
-| `src/ai/benchmark/runner.ts` | 実行（タイムアウト・中断・1 件の失敗で止めない） |
-| `src/ai/benchmark/metrics.ts` | 集計（01AS の優先順） |
+| `src/ai/benchmark/checks.ts` | 自動検証（contradiction・unsupported claim・thinking・体裁・反復・出力の上限・内部 code の漏れ。validator v2） |
+| `src/ai/benchmark/runner.ts` | 実行（タイムアウト・中断・1 件の失敗で止めない・checkpoint 用の hook） |
+| `src/ai/benchmark/metrics.ts` | 集計（01AS の優先順・Clean response） |
+| `src/ai/benchmark/profiles.ts` | Benchmark Profile（STANDARD / MOBILE_FEASIBILITY）・段階制の判定（10 節） |
+| `src/ai/benchmark/reevaluate.ts` | 保存済み run を、モデルを再実行せずに現在の検証で評価し直す（12 節） |
+| `src/lab/benchmarkCheckpoint.ts` | crash checkpoint と段階の記録（11 節） |
+| `src/lab/labTestRuntime.ts` | E2E 用の Test Runtime（`?ai-lab-test-runtime=mock`。実モデルなし・precache しない） |
+| `scripts/reevaluate-benchmark.ts` | export JSON を現在の検証で再評価する開発者向けスクリプト（`npm run reevaluate:benchmark`） |
 | `src/ai/benchmark/export.ts` | JSON / CSV export・人手評価の型 |
 | `src/ai/benchmark/device.ts` | 端末確認と互換性の判定 |
 | `src/ai/benchmark/runtimes/templateRuntime.ts` | 決定論的な baseline（モデルなし） |
@@ -110,6 +115,9 @@ VITE_AI_FEATURES=on npm run build && npm run preview
   Pages 用ビルドの Gate の値と、検証用の既定 base は `scripts/lib/pagesBuild.mjs` の 1 か所にだけ書きます。
 - CI の gate-open E2E は headless で WebGPU の adapter が無いため、確認画面の検査では adapter を偽装します
   （`requestDevice` は失敗させ、モデルは取得しません）。
+- MOBILE_FEASIBILITY の段階・crash checkpoint の復元は `e2e/gate-open/mobileFeasibility.gate-open.spec.ts` で、URL に
+  `?ai-lab-test-runtime=mock`（`mock-hang`）を付けたときだけ Lab が読む E2E 用の Test Runtime（Mock。`src/lab/labTestRuntime.ts`）で確かめます。
+  Test Runtime の chunk（`labTestRuntime-*.js`）は precache しません（`vite.config.ts`・`npm run check:base`）。
 
 ### 2.2 KNOWN LIMITATION: WebLLM のキャッシュ
 
@@ -152,8 +160,8 @@ IndexedDB は unknown。正確に数えられなければ unknown。`docs/AI_MOD
 | candidate | runtime | license | parameter size | quantization | browser support | Japanese support | model download size | VRAM estimate | benchmark result | adoption status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Baseline（template） | deterministic | このリポジトリ | — | — | すべて（モデルなし） | — | 0 | 0 | 100 / 100 合格・contradiction 0・unsupported 0（jsdom・Chromium で確認） | 比較の基準線 |
-| Qwen3 0.6B | WebLLM `Qwen3-0.6B-q4f16_1-MLC` | Apache-2.0 | 0.6B | q4f16_1 | WebGPU 必須 | 公称 119 言語・方言（日本語を含む） | 未計測 | 1,403.34 MB（low_resource: true） | 未計測 | NOT_EVALUATED（想定 class: ULTRA_LIGHT・仮説） |
-| Qwen3 1.7B | WebLLM `Qwen3-1.7B-q4f16_1-MLC` | Apache-2.0 | 1.7B | q4f16_1 | WebGPU 必須 | 同上 | 未計測 | 2,036.66 MB（low_resource: true） | 未計測 | NOT_EVALUATED（想定: LIGHT・仮説） |
+| Qwen3 0.6B | WebLLM `Qwen3-0.6B-q4f16_1-MLC` | Apache-2.0 | 0.6B | q4f16_1 | WebGPU 必須 | 公称 119 言語・方言（日本語を含む） | 未計測 | 1,403.34 MB（low_resource: true） | iPhone 100 件完走（STANDARD・validator v1: contradiction 0 / 100・unsupported 7・pass 93 / 100。反復・上限到達・内部 code の漏れあり。13 節） | NOT_EVALUATED（本命候補にしない判断。fallback 候補の可能性は残す。13.2 節） |
+| Qwen3 1.7B | WebLLM `Qwen3-1.7B-q4f16_1-MLC` | Apache-2.0 | 1.7B | q4f16_1 | WebGPU 必須 | 同上 | 未計測 | 2,036.66 MB（low_resource: true） | iPhone: download 成功・Run Benchmark でページ終了（13 節）。品質は未計測 | NOT_EVALUATED（Mobile primary candidate として MOBILE_FEASIBILITY で評価する方針・仮説） |
 | Qwen3 4B | WebLLM `Qwen3-4B-q4f16_1-MLC` | Apache-2.0 | 4B | q4f16_1 | WebGPU 必須 | 同上 | 未計測 | 3,431.59 MB（low_resource: true） | 未計測 | NOT_EVALUATED（想定: STANDARD・仮説） |
 | Qwen3 8B | WebLLM `Qwen3-8B-q4f16_1-MLC` | Apache-2.0 | 8B | q4f16_1 | WebGPU 必須 | 同上 | 未計測 | 5,695.78 MB（low_resource: false） | 未計測 | NOT_EVALUATED（想定: QUALITY・仮説） |
 | Llama 3.2 1B Instruct | WebLLM `Llama-3.2-1B-Instruct-q4f16_1-MLC` | Llama 3.2 Community License | 1B | q4f16_1 | WebGPU 必須 | 公式対応 8 言語に日本語は**含まれない** | 未計測 | 879.04 MB（low_resource: true） | 未計測 | NOT_EVALUATED（EXPERIMENTAL） |
@@ -285,8 +293,10 @@ system（要旨。全文は `src/ai/benchmark/prompt.ts`）:
 
 user: 場面ごとの指示（CHECKOUT / SETUP / NEXT VISIT / RECOVERY / GAME REVIEW）＋ `<evidence>`（キー順を固定した JSON）。
 
-生成の既定値: thinking OFF・temperature 0・seed 1・max_tokens 384・1 件のタイムアウト 60 秒。
+生成の既定値（STANDARD）: thinking OFF・temperature 0・seed 1・max_tokens 384・1 件のタイムアウト 60 秒。
 各ケースの前に会話を reset します（前のケースを持ち越さない）。
+MOBILE_FEASIBILITY では max_tokens 192・context window 2048 です（10 節）。**prompt の本文（`01as-explain-ja@1`）は PR #5 でも変えていません**
+（モデルの差と prompt の改善を混ぜずに確かめるため）。
 
 ---
 
@@ -303,7 +313,31 @@ user: 場面ごとの指示（CHECKOUT / SETUP / NEXT VISIT / RECOVERY / GAME RE
 | 5 | **Latency** | TTFT・本文の TTFT・生成時間・tok/s | 7.2 |
 
 - 自動の矛盾検出は**既知のパターンだけを拾う保守的なもの**で、見逃しはあり得ます。人手確認を省略しません。
-- 誤検出が無いことは、決定論的な baseline（アプリの fallback と同じ文面）が全 100 ケースで合格することで確認しています。
+- 誤検出が無いことは、決定論的な baseline（アプリの fallback と同じ文面）が全 100 ケースで合格することで確認しています
+  （validator v2 の反復・内部 code の検出を含む）。
+
+### 7.1a validator v2（PR #5）: 反復・出力の上限・内部 code の漏れ
+
+Qwen3 0.6B の iPhone 実機 100 件（13 節）で、v1 が合格にしていた失敗（反復の暴走・max_tokens への張り付き・内部 code の漏れ）を
+拾うため、次を追加しました。どれも **validation の不合格**（`failureCodes`）です。run に `validatorVersion: 2` を記録します。
+
+| 区分 | 判定（`checks.ts`。しきい値は定数で固定し、`checks.test.ts` で検査） | 誤検出しないもの |
+| --- | --- | --- |
+| `REPETITION` | ① 的の列で、周期 1〜4 本の並びが **3 回以上**続き、繰り返しが **8 本以上**（`dartPeriodMax 4`・`dartMinRepeats 3`・`dartMinSpan 8`）② 1 つの列に的が **16 本以上**（Evidence の投は最大 12 件）③ 空白を除いて **8〜80 文字**の同じ文字列が **3 回以上連続** ④ 空白を除いて 8 文字以上の同じ文が **3 回以上** | `T20 → T20 → D20`・「T20 を 2 本」・同じ的に何度か触れる・同じ文の言い直し 2 回・6 本の交互の列（`S20、S18` × 3） |
+| `OUTPUT_LIMIT_REACHED` | Runtime の `finish_reason: "length"`（**優先**。WebLLM 0.2.85 は max_tokens・context window のどちらで止まっても `length`）。finish_reason が分からない記録（PR #5 以前）だけ、出力トークン数 ≥ max_tokens − 8（`OUTPUT_LIMIT_TOKEN_MARGIN`）で安全側に判断 | Runtime が `stop` を返した応答（上限の近くでも） |
+| `INTERNAL_CODE_LEAK` | 検証用の正規化（NFKC・大文字化）のあと、`/(?<![A-Z0-9_])[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+(?![A-Z0-9_])/`（`_` を 1 つ以上含む大文字の語。例: `STANDARD_ROUTE`・`GOOD_DECISION`・`LEAVES_CHECKOUTABLE`）。allowlist は**該当なし**（01AS の画面の用語に `_` を含む語は無い） | `T20`・`D16`・`S5`・`BULL`・`S-BULL`・`SB`・`PPR`・`BUST`・`NEXT VISIT`・`GOOD`・`BETTER` |
+
+集計（RESULTS・export の summary）は次を**個別に**出します。
+
+| 指標 | 定義 |
+| --- | --- |
+| Engine contradiction | 矛盾を含む応答 / 応答が返ったケース |
+| Unsupported claim | 根拠の無い主張を含む応答数・件数 |
+| Validation failure | 不合格（どの区分でも。エラー・タイムアウトを含む）/ 全ケース |
+| Repetition / Output limit reached / Internal code leak | それぞれを含む応答数 / 全ケース |
+| **Clean response** | 応答が返り、contradiction なし・unsupported claim なし・validation pass・反復なし・上限に達していない・内部 code なし / 全ケース |
+
+v1 の記録（反復などを調べていない）では、新しい指標を「未計測」と表示します（0 とは表示しない）。12 節の再評価で埋まります。
 
 ### 7.2 計測値
 
@@ -379,3 +413,227 @@ WebLLM 0.2.85 の `prebuiltAppConfig` をローカルで読み、ライセンス
 
 各 run の export（JSON）と人手評価を保存し、3.2 の表の「benchmark result」を更新します。
 採用・class の確定は、この表を見て人間が判断し `docs/APPROVALS.md` へ記録します。
+
+---
+
+## 10. Benchmark Profile と MOBILE_FEASIBILITY（PR #5）
+
+**目的は 1.7B を無理に採用することではなく、iPhone 上で実用可能かを正しく判定できる状態を作ること**です。
+Lab 限定の実行条件で、Production・利用者向けの 01AS・本番の Runtime には影響しません。
+
+### 10.1 Profile
+
+| Profile | 版 | context window | max_tokens | 実行 | 位置づけ |
+| --- | --- | --- | --- | --- | --- |
+| `STANDARD` | 1 | Runtime の既定（WebLLM の prebuilt。Qwen3 は 4096）。**何も上書きしない** | 384 | Run Benchmark（すべて / クイック） | 品質の benchmark（PR #2〜#4 と同じ条件） |
+| `MOBILE_FEASIBILITY` | 1 | **2048**（`context_window_size` を上書き） | **192** | 段階制（LOAD ONLY → 1 CASE → QUICK 10 → FULL 100） | スマートフォンで安定して読み込み・生成できるかの確認。**品質の benchmark ではない** |
+
+- run に `profile`（`id`・`version`・`contextWindowSize`・`stage`）を必ず保存します。PR #5 以前の run は STANDARD と同じ条件で実行したので、
+  STANDARD v1（`recorded: false`「profile の記録なし」）として扱います。
+- **profile が違う run どうしを同じ benchmark として比べません。** RESULTS の run 一覧に `[profile]` を出し、STANDARD 以外の run には
+  「STANDARD の結果と直接比べない」と表示します。JSON / CSV の export は profile が違う run を混ぜると拒否します（`BenchmarkProfileMixError`）。
+- context window を小さくする profile は、候補の tokenizer で数えた prompt の最大 token 数 ＋ max_tokens ＋ 余裕 64 が収まる候補にだけ使えます
+  （`profileFitsCandidate`。未計測の候補・計測時とデータセット／prompt の版が違う候補には使わない）。
+
+### 10.2 値の根拠: prompt token 数（計測値）
+
+2026-09-29 に開発環境で、01AS Core v1（指紋 `d8bcc5db4101150e`）・prompt `01as-explain-ja@1` の 100 件を Qwen3 の tokenizer で数えました。
+
+| 項目 | 値 |
+| --- | --- |
+| tokenizer | Qwen3 の tokenizer.json（npm `@lenml/tokenizer-qwen3` 3.7.2 に同梱。語彙 151,669）。**作業環境の scratchpad だけで使い、リポジトリの依存には追加していません** |
+| 数え方 | Qwen3 の chat template（`<\|im_start\|>system …<\|im_end\|>`・user・assistant の開始・thinking OFF の空の `<think>\n\n</think>\n\n`）を含む |
+| 平均 / p50 / p95 / 最大 | **1094.2** / 1120 / 1507 / **1659**（`SU-301-3`） |
+| カテゴリ別の最大 | CHECKOUT 1241・SETUP 1659・NEXT_VISIT 1166・RECOVERY 1530・SIMULATION_REVIEW 1520 |
+| 照合 | iPhone 実機（WebLLM・Qwen3 0.6B）の usage.prompt_tokens の平均 **約 1094** と一致 |
+| 出力の目安 | 決定論的な baseline の説明文は Qwen3 の tokenizer で平均 121.2・p95 171・最大 179 tokens |
+
+- **context window 2048**: 1659 ＋ 192 ＋ 64 = 1915 ≤ 2048。1536 では最大の prompt（1659）が入らない（context 不足で失敗する設定は使わない）。
+- **max_tokens 192**: 依頼の目安 128〜192 の上限。baseline の最大 179 tokens が収まる長さ。128 では baseline 並みの長さの説明の約半分が
+  打ち切られる（打ち切られた応答は `OUTPUT_LIMIT_REACHED` として不合格にする）。
+- 同じ値を `candidates.ts` の `promptTokenMeasurement`（Qwen3 0.6B / 1.7B / 4B / 8B。同じ tokenizer）に記録し、テストがデータセットの指紋・prompt の版と照合します。
+
+### 10.3 WebLLM 0.2.85 で確認したメモリ関連の設定（実コード）
+
+`node_modules/@mlc-ai/web-llm/lib/index.js`・`config.d.ts`・`engine.d.ts`（0.2.85）を読んで確認しました。**存在するものだけを使っています。**
+
+| 設定 | 実コードでの扱い | 上書き | 使ったか |
+| --- | --- | --- | --- |
+| `context_window_size`（`ChatConfig`） | `LLMChatPipeline` が KV cache を `create_tir_paged_kv_cache(max_num_sequence=1, max_total_sequence_length=context_window_size, prefill_chunk_size, page_size=16, …)` で**読み込み時に確保**する。decode 中に context に達すると `finish_reason: "length"` で止め、prompt が入らなければ `ContextWindowSizeExceededError` | `ModelRecord.overrides` または `engine.reload(modelId, chatOpts)`（`reloadInternal` が `Object.assign({}, mlc-chat-config, modelRecord.overrides, chatOpts)`） | **使った**（MOBILE_FEASIBILITY で 2048。`reload` の chatOpts で渡す。appConfig は変えない） |
+| `sliding_window_size` / `attention_sink_size` | context window と同時に正にできない（`WindowSizeConfigurationError`）。sliding window にすると KV cache は sliding window 分 | 同上 | 使わない（prompt が context に収まるので不要。注意の範囲が変わり説明の条件が変わる） |
+| `prefill_chunk_size` | `metadata.prefill_chunk_size`（モデルの wasm に埋め込まれた値。Qwen3 の wasm 名は `…_cs1k-webgpu.wasm`）を読む。`ChatConfig` の値は使われない | **できない** | 使えない |
+| `max_history_size` | RNN state のモデルだけ | 同上 | 対象外（Qwen3 は KV cache） |
+| `max_num_sequence`・`page_size` | 1・16 で固定（コード内の定数） | できない | 使えない |
+| `max_tokens`（`GenerationConfig`） | 生成の上限。KV cache の確保量は変えない（生成時間・出力量だけ） | 要求ごと | 使った（192） |
+| `vram_required_MB`・`low_resource_required`・`buffer_size_required_bytes` | 表示・判定用の記録。確保量は変えない | — | 変更しない |
+| WebGPU device の要求 | `detectGPUDevice` が `maxBufferSize`（1 GiB → 256 MiB）・`maxStorageBufferBindingSize`（1 GiB → 128 MiB）を要求。`reload` ごとに device を作り、`unload` → `pipeline.dispose()`（`tvm.dispose()` を含む）で解放 | できない | 変更しない |
+
+KV cache の見積もり（**推定**）: Qwen3 1.7B の公開 config（`num_hidden_layers` 28・`num_key_value_heads` 8・`head_dim` 128。この作業環境からは
+Hugging Face へ接続できず**再確認はできていません**）と f16 から、1 token あたり 2 × 28 × 8 × 128 × 2 B = 112 KiB。
+context 4096 で約 448 MiB、2048 で約 224 MiB（差 約 224 MiB。`vram_required_MB` 2036.66 の約 11%）。重み・prefill の作業領域（`prefill_chunk_size` で固定）は
+この設定では減りません。**この削減で iPhone（WebKit）の上限に収まるかは不明**で、実機の段階制で確かめます（14 節）。
+iPhone の WebKit がタブを終了するメモリの上限値は、公開された確かな値を確認できていないため**不明**とします。
+
+### 10.4 段階制（MOBILE_FEASIBILITY）
+
+| 段階 | 内容 | ケース |
+| --- | --- | --- |
+| LOAD ONLY | 読み込んで**すぐ解放**し、成否と読み込み時間だけを記録 | なし |
+| 1 CASE | 読み込み → 1 件生成 → 解放 | クイックの 1 件目（`CO-2-1`） |
+| QUICK 10 CASES | 同上 | 各カテゴリ 2 件（計 10 件: `CO-2-1`・`CO-8-3`・`SU-171-3`・`SU-178-3`・`NV-3-1`・`NV-99-1`・`RC-170-3-single`・`RC-167-3-single`・`SR-170-ppr60-s1`・`SR-170-ppr90-s2`） |
+| FULL 100 | 同上 | 100 件 |
+
+- 各段階は「解放 → **保存済みのモデルを読み込む（取得しない）** → 生成 → 解放」で、前の段階のメモリを持ち越しません。
+- 次のどれかがあると、次の段階を**推奨しない**（ボタンに「非推奨」と理由を出し、押すと確認画面を挟む。実行はできる）:
+  前の段階が未実施・失敗（読み込みの失敗・1 件のエラー / タイムアウト）・中止・正常終了しなかった／checkpoint が残っている／device lost・GPU error を記録した。
+  品質の不合格（validation fail）は段階の失敗にしません（安定性の確認なので）。
+- 段階の記録は「候補 × profile（id@version）× 保存方式」ごとに `01as-beta:ai.benchmark.feasibility.v1`（直近 60 件）へ残します。
+
+### 10.5 Runtime / WebGPU の資源の扱い
+
+- MLCEngine は Runtime につき 1 つだけ作る（`engine ??=`）。WebLLM の `reload` は前のモデルを解放してから読み込む
+- 読み込みを同時に 2 つ走らせない（`runtime-unavailable`）
+- 読み込み済みのモデルと context window が違えば読み込み直し、同じなら `already-loaded`
+- 候補の切り替え・profile の切り替え・保存方式の切り替え・Lab を離れる（unmount）・`pagehide` で解放する。MOBILE_FEASIBILITY の段階は終わったら解放する
+- 検査: `src/ai/benchmark/profiles.test.ts`（偽の WebLLM モジュールで MLCEngine の生成数・chatOpts・appConfig の同一性・同時読み込み）、
+  `src/lab/AiModelLabFeasibility.test.tsx`（解放のタイミング）。実機の WebGPU の資源の解放そのものは CI では確かめられません（WebGPU の adapter が無いため）
+
+### 10.6 保存済みのモデルを再ダウンロードしない
+
+- profile の違いは `reload` の chatOpts（実行時の設定）だけで、appConfig（保存方式・モデルの URL）は変えません。保存済みのモデルをそのまま読み込みます
+  （テストで、context window を変えても `download` が起きず、存在確認と MLCEngine に渡す appConfig が同じオブジェクトであることを確かめています）
+- 段階は `allowDownload: false` で読み込みます（保存されていなければ「先に Download」と表示し、取得しない）
+- **partial（一部だけ保存）**: WebLLM の存在確認はすべてのファイルがそろわないと「無い」と答えるため、`countModelEntries`（読むだけ）で
+  そのモデルの記録が残っているかを数え、`OPFS`・`Cache API` では「一部だけ保存（partial）」と表示します（IndexedDB は数えられないので不明）。
+  partial のときも「モデルを削除」を出し、**対象モデル単位**の `deleteModelAllInfoInCache` だけで消します（`webllm/*` の一括削除はしない）。
+  「Download（残りを取得）」では、WebLLM が保存済みのファイルを取り直さずに残りだけを取得します
+
+---
+
+## 11. crash checkpoint（PR #5）
+
+iPhone ではメモリが足りないとタブごと終了し、try / catch で失敗を記録できません。実行中の段階を**とても小さく** localStorage
+（`01as-beta:ai.benchmark.checkpoint.v1`。`storage/localJson.ts` 経由）へ書きます。
+
+```json
+{
+  "schema": "01as-ai-benchmark-checkpoint",
+  "version": 1,
+  "runId": "webllm-qwen3-1.7b|webllm|thinking-off|MOBILE_FEASIBILITY@1|…",
+  "candidateId": "webllm-qwen3-1.7b",
+  "candidateLabel": "Qwen3 1.7B",
+  "runtimeModelId": "Qwen3-1.7B-q4f16_1-MLC",
+  "profileId": "MOBILE_FEASIBILITY",
+  "profileVersion": 1,
+  "contextWindowSize": 2048,
+  "stage": "QUICK_10",
+  "storageBackend": "opfs",
+  "phase": "generating",
+  "caseIndex": 3,
+  "caseTotal": 10,
+  "caseId": "SU-…",
+  "startedAt": "…",
+  "updatedAt": "…"
+}
+```
+
+- 書くのは段階の切り替わりだけ: 読み込みの前（`loading`）・読み込みの後（`loaded`）・各ケースの生成の前（`generating`）・生成が返った後（`validating`）・
+  解放の前（`unloading`）。トークンごとには書きません（FULL 100 でも 1 run あたり約 200 回・1 回 600 byte 未満）
+- 正常終了・明示的な中止・捕まえた失敗（読み込みの失敗など）で消します。Download / Load（手動の読み込み）も読み込みの間だけ書きます
+- 次に Lab を開いたとき残っていれば、「前回のBenchmarkは正常終了しませんでした。」と Model・Profile・Phase・Case（`4 / 10`）・ID を表示し、
+  JSON で保存できます。その段階は「正常終了しなかった（incomplete）」として段階の記録に残り、次の段階を推奨しません
+- これは **「前回の run が正常終了しなかった証拠」** で、ブラウザ・タブの crash の証拠ではありません（再読み込み・タブを閉じた場合も残ります）。原因は断定しません
+- localStorage への書き込みがタブの終了の前に確定しているかは、ブラウザの実装によります（best-effort）
+
+---
+
+## 12. 保存済み run の再評価（モデルを再実行しない）
+
+- RESULTS の **「Re-evaluate with current checks」**: 保存済みの run の生の応答（`rawText`）を、その run を作ったデータセット（ID・版・指紋が一致するもの）の
+  Evidence で、現在の検証（validator v2）で評価し直します。**元の run は書き換えず**、新しい run（`reevaluation.originalRunId`・`originalValidatorVersion`・
+  `validatorVersion: 2`）として保存します。応答 ID は元と同じなので人手評価をそのまま使えます
+- finish_reason は PR #5 以前の記録に無いので、出力の上限は出力トークン数 ≥ max_tokens − 8 で安全側に判断します
+- export した JSON は `npm run reevaluate:benchmark -- <export.json> [出力.json]` で再評価できます（元のファイルは変更せず、`<入力>.reeval-v2.json` へ書く）
+- 再評価できないとき: データセットが一致しない・すでに validator v2・rawText が残っていない（理由を表示します）
+- Lab の保存は直近 5 件です。再評価した run を足すと古い run が押し出されることがあるので、先に Export JSON で保存してください
+
+---
+
+## 13. 実機の記録（iPhone）
+
+依頼者の実機での記録です（この作業環境では実モデルを取得・実行していません）。
+
+### 13.1 端末
+
+| 項目 | 値 |
+| --- | --- |
+| OS | iOS 26.6 |
+| Browser | Chrome for iOS 154（エンジンは WebKit） |
+| WebGPU | 利用可（Apple adapter） |
+
+### 13.2 Qwen3 0.6B（STANDARD・validator v1・100 件）
+
+| 指標 | 値 |
+| --- | --- |
+| 完走 | 100 / 100 |
+| Engine contradiction | 0 / 100 |
+| Unsupported claims | 7 |
+| Validation pass | 93 / 100 |
+| prompt tokens（平均） | 約 1094 |
+| SIMULATION_REVIEW の出力 | 12 件中 7 件が 379〜384 tokens（max_tokens 384）に到達 |
+
+v1 の自動検証が見逃していた失敗（人手で確認されたもの）: 反復の暴走（`S20、S18、S20、S18…`）・token limit への到達・内部の enum / reason code の漏れ
+（`STANDARD_ROUTE`・`GOOD_DECISION`・`LEAVES_CHECKOUTABLE`）・根拠の無い target / 数値・意味が崩れた日本語。
+validator v2（7.1a 節）で前 3 つを不合格として数えます。この run の JSON を 12 節の方法で再評価すると、v2 の数値が出ます
+（**この作業環境には run の JSON が無いため、v2 での数値は未計測**）。
+
+**判断（依頼者）**: 0.6B は動作確認用・fallback 候補にはなり得るが、利用者向け AI の本命としては品質が不足している。本命候補にはしない。
+
+### 13.3 Qwen3 1.7B
+
+| 段階 | 結果 |
+| --- | --- |
+| Download（保存） | 成功 |
+| Run Benchmark（STANDARD・context 4096・max_tokens 384） | 「このページを開けません」と表示され、タブが終了した |
+| 推定 VRAM | 2,036.66（WebLLM の `vram_required_MB`） |
+
+メモリ圧迫による WebKit のタブの終了を疑っていますが、**確定していません**（crash checkpoint が無かったため、どの段階で終わったかも不明）。
+
+**方針**: 1.7B を Mobile primary candidate として MOBILE_FEASIBILITY（10 節）で評価する。**品質は未計測**。
+1.7B が合理的な設定でも安定しない場合は、この仮説（0.6B = 軽量 fallback / 1.7B = 通常利用の候補）を撤回できるようにし、次の候補は人間が決める。
+モデル選定の結論は実装で固定しません。
+
+### 13.4 今回の提案（実装していない）
+
+- **Prompt v2 は実装していません**（モデルの差と prompt の改善を混ぜないため）。0.6B の品質の問題が prompt・max_tokens・model capacity の
+  どれに強く依存するかは、1.7B の MOBILE_FEASIBILITY の結果と、0.6B の再評価（v2）の内訳（反復・上限到達・内部 code がどのカテゴリに集中するか）を見てから判断します。
+  参考: SIMULATION_REVIEW は prompt が長く（平均 1448 tokens）、指示が「verdict が GOOD_DECISION 以外の投」と内部の enum 名を含むため、
+  内部 code の漏れを誘っている可能性があります（**仮説**。検証していません）
+
+---
+
+## 14. merge 後の iPhone での手順（MOBILE_FEASIBILITY）
+
+**いきなり 100 件を実行しないでください。** 各段階が成功した場合だけ次へ進みます。
+
+1. 公開 Beta を開く（更新の案内が出たら更新する）→ 設定 → DEVELOPER → 「AI MODEL LAB を開く」
+2. 「前回のBenchmarkは正常終了しませんでした」が出たら、内容（Model・Phase・Case）を記録し「checkpoint を保存（JSON）」→「確認した」
+3. **MODEL** で **Qwen3 1.7B** を選び、保存状況を確認する
+   - 「ダウンロード済み（キャッシュあり）」: そのまま 4 へ
+   - 「一部だけ保存（partial）」: 「Download（残りを取得）」で残りを取得する（または「モデルを削除」でこのモデルの分だけ消してから Download）
+   - 「未ダウンロード」: 保存方式（OPFS / IndexedDB / Cache API）を切り替えて、ほかの方式に保存されていないか確かめる（「保存状況（方式ごと）」）。
+     どこにも無ければ Download
+4. **BENCHMARK** の Benchmark Profile で **MOBILE_FEASIBILITY** を選ぶ（context window 2048・max_tokens 192 と表示される）
+5. **LOAD ONLY** を押す → 「前回: 成功・load …」になったら次へ（失敗したら診断情報を保存して止める）
+6. **1 CASE** を押す → 「前回: 成功・1 / 1 件」になったら次へ
+7. **QUICK 10 CASES** を押す → 「10 / 10 件」になったら次へ。RESULTS で Export JSON
+8. ここまで成功した場合だけ **FULL 100** を押す → Export JSON
+9. タブが終了した（「このページを開けません」）場合は、Lab を開き直し、表示される checkpoint（Phase・Case）を記録して JSON で保存する。
+   同じ段階を 1 回だけ再試行してもよいが、2 回続けて終了したら**そこで止め**、結果（どの段階・どの Phase で終わったか）を報告する
+10. 記録するもの: 各段階の成否・load 時間・Phase・Case・RESULTS の Export JSON・DEVICE の表示（Adapter・maxBufferSize）
+
+判定の目安（人間が判断する）:
+
+- LOAD ONLY で終了する → 重み＋KV cache（2048）の確保だけで上限を超えている可能性。context window の縮小では足りない
+- LOAD ONLY は成功し 1 CASE で終了する → 生成時の作業領域（prefill の chunk 1024 分など。WebLLM 0.2.85 では変えられない）を含めて上限を超えている可能性
+- QUICK 10 の途中で終了する → 繰り返しの生成での一時的なメモリ・発熱などの可能性（checkpoint の Case で位置を確かめる）

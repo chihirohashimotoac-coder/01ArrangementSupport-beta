@@ -749,6 +749,21 @@ WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm
 - WebLLM の版（0.2.85）・候補モデル・Runtime の種類・戦術データは変更しない
 - 詳細は `docs/AI_MODEL_STORAGE.md`
 
+### AI-5. Benchmark の検証の強化・失敗の分類・crash checkpoint・MOBILE_FEASIBILITY（Lab 限定）
+
+オーナーの PR #5 依頼（MOBILE 1.7B FEASIBILITY + BENCHMARK VALIDATION HARDENING）で、次の 4 点が承認された。PR のレビューと merge で確定する。
+
+- A. Benchmark の自動検証の改善（`src/ai/benchmark/checks.ts` 周辺。反復・出力の上限・内部 code の漏れ。validator v2）
+- B. モデルの読み込みの失敗の分類の改善（`src/ai/benchmark/modelLoadFailure.ts`。取得後の読み戻しの失敗を `storage-failed`）
+- C. Benchmark の crash checkpoint（Lab 内で実行中の段階を localStorage へ小さく記録）
+- D. Qwen3 1.7B 向けの **Lab 限定**の低メモリの実験設定。WebLLM 0.2.85 が正式に持つ設定だけ（`context_window_size` を
+  `reload(modelId, chatOpts)` で 2048・max_tokens 192）。STANDARD の条件は変えない
+
+承認されていないもの（この PR でもしていない）: WebLLM の版の変更・別の量子化・Qwen3 1.7B 以外への置き換え・Transformers.js の導入・
+AI Coach・Production への AI の採用・prompt（`01as-explain-ja@1`）の全面的な変更。
+MOBILE_FEASIBILITY の結果は品質の benchmark ではなく、STANDARD と比べない。モデルの採用・class はこの承認に含まれない（実測の後で人間が判断する）。
+詳細は `docs/AI_MODEL_BENCHMARK.md` 7.1a・10〜14 節。
+
 ---
 
 ## 変更履歴
@@ -768,6 +783,7 @@ WebLLM 0.2.85 のキャッシュ名（`webllm/model`・`webllm/config`・`webllm
 | v1 | 2026-08-31 | A-1 〜 A-8 を承認（PR #1）。値の変更はなし、状態とドキュメントのみ更新。 |
 | AI-1〜3 | 2026-09-28 | PR #2。WebLLM 0.2.85 の依存追加（Benchmark Lab 限定）・Beta Pages 成果物での Developer Gate OPEN・WebLLM キャッシュ名の既知制約。戦術データは変更なし。 |
 | AI-4 | 2026-09-28 | PR #3。AI MODEL LAB のモデル保存方式を OPFS 既定へ（fallback は自動で切り替えない）。WebLLM の版・候補・戦術データは変更なし。 |
+| AI-5 | 2026-09-29 | PR #5。Benchmark の検証の強化（validator v2）・取得後の読み戻しの失敗の分類・crash checkpoint・Lab 限定の MOBILE_FEASIBILITY（context 2048・max_tokens 192）。WebLLM の版・候補・prompt・戦術データは変更なし。 |
 | v1.3.4 | 2026-09-14 | A-9 〜 A-13 を承認。既存の重み（A-5〜A-8）は変更なし。新しい戦術判定軸の追加と、TRAINING の出題形式の入れ替え。 |
 | v1.3.5 | 2026-09-15 | A-14 〜 A-16 を承認。既存の重み（A-5〜A-8）は変更なし。得意ダブルの既定値が戦術判断を決めていた問題の修正と、SETUP TRAINING の回答単位の変更。 |
 | v1.3.6 | 2026-09-15 | A-17 を承認。既存の重み・第 1 候補の選び方は変更なし。実戦入力での残し候補の見せ方（最大 3 件・残り点つき）。 |

@@ -157,7 +157,8 @@ AI MODEL LAB の **STORAGE** に次を表示する。
 | `aborted` | 利用者の中止（AbortSignal）・`AbortError` |
 | `quota-exceeded` | `QuotaExceededError`・旧 code 22・message の「quota exceeded」 |
 | `opfs-unavailable` | 方式が OPFS で、`OPFS API unavailable`・`SecurityError`・`NotSupportedError`・`crypto.subtle.digest is unavailable` |
-| `network-failed` | `NetworkError`・「Failed to fetch」・「Unable to fetch … received status 404」・Cache API の「Request failed」など |
+| `storage-failed`（読み戻し。PR #5） | `ArtifactIndexedDBCache failed to fetch: <url>`・`ArtifactOPFSCache failed to fetch: <url>`・（Cache API のとき）`Cannot fetch <url>`。**通信の判定より先に見る**（6.1 節） |
+| `network-failed` | `NetworkError`・「Failed to fetch」・「Unable to fetch … received status 404」・「Network response was not ok」・Cache API の「Request failed」など |
 | `gpu-load-failed` | `WebGPUNotAvailableError`・`FeatureSupportError`・`ShaderF16SupportError`・`DeviceLostError`・WebGPU / device lost / maxBufferSize などの message |
 | `storage-failed` | `InvalidStateError`・`NoModificationAllowedError`・`NotReadableError` など、容量制限以外の保存の失敗 |
 | `unknown` | 上のどれとも判断できない（message をそのまま示す） |
@@ -181,6 +182,32 @@ OPFS で再試行できます（保存方式を OPFS に切り替え、確認の
 ```
 
 「OPFS で再試行」を押すと、方式を OPFS に切り替えて**確認画面を開くだけ**で、取得は「ダウンロードを開始」を押してから。
+
+### 6.0 取得の後の読み戻しの失敗（PR #5）
+
+PC 実機で保存方式を IndexedDB にしたとき、WebLLM が 30 / 30 shard を取得した後に次で止まり、Lab が `network-failed` と誤って分類した。
+
+```text
+ArtifactIndexedDBCache failed to fetch: https://huggingface.co/…/params_shard_0.bin
+```
+
+WebLLM 0.2.85（`node_modules/@mlc-ai/web-llm/lib/index.js`）で確かめたこと:
+
+- `ArtifactIndexedDBCache.addToCache` は、取得した応答を `store.add({ data, url })` し、**request の `onsuccess` で完了**とする。
+  transaction の確定（`oncomplete`）・中止（`onabort`。容量制限の QuotaExceededError は transaction の abort として届く）を待たない
+- `fetchWithCache` は `addToCache` の後に `asyncGetHelper` で読み戻し、空なら削除して 1 回だけ取り直し、それでも空なら
+  `ArtifactIndexedDBCache failed to fetch: <url>` を投げる
+- 取得の失敗は `addToCache` の中で `Failed to store <url> with error: TypeError: Failed to fetch` として**先に**投げられる
+  （HTTP の失敗は `… with error: Error: Network response was not ok`）
+
+したがって「`ArtifactIndexedDBCache failed to fetch:` で始まる」失敗は、**取得が例外なく終わった後の保存領域の失敗**（commit の失敗の可能性。
+容量制限の可能性を含むが断定しない）で、通信の失敗ではない。download progress が 100% に近いこととも整合する。
+OPFS（`ArtifactOPFSCache failed to fetch:`）・Cache API（`Cannot fetch <url>`。`cache.add()` の後の `match()` が空）の同じ段階の失敗も同じく扱う。
+
+- 分類: `storage-failed`（`isPostStoreReadFailure`）。本物の通信の失敗（上の `Failed to store … Failed to fetch`・HTTP の失敗・接続の失敗）は
+  `network-failed` のまま（`modelStorage.test.ts`）
+- 診断情報に `postStoreReadFailure: true` を残し、画面に「配布元からの取得は終わりましたが、保存したファイルを保存領域から読み戻せませんでした。
+  通信の失敗ではありません。」と出す（IndexedDB では commit の失敗の可能性を、断定せずに添える）
 
 ### 6.1 WebGPU の制約とは分けて扱う
 
@@ -242,12 +269,28 @@ AI MODEL LAB の **BROWSER STORAGE DIAGNOSTICS** で測る（OPFS / IndexedDB / 
 
 ---
 
+### 7.3 実機の結果（PC-A / PC-B。依頼者の記録）
+
+| PC | BROWSER STORAGE DIAGNOSTICS | 読み方 |
+| --- | --- | --- |
+| PC-A | **Case A**（OPFS / IndexedDB / Cache API のすべてが同じ大きさで成功） | この PC の Browser Storage は正常。WebLLM 側の保存の実装を疑う |
+| PC-B | **Case B**（約 300 MiB で 3 方式とも `QuotaExceededError`） | **WebLLM 固有の問題ではなかった**。Browser / Chrome Profile / quota の管理の側の可能性が高い（原因は断定しない） |
+
+- PC-B では WebLLM を使わない診断でも同じ大きさで 3 方式が失敗したので、`QuotaExceededError` を WebLLM・保存方式の選択の問題として扱わない。
+  `navigator.storage.estimate()` の quota（約 10 GiB）は実際に書ける上限を保証しない（`docs/BROWSER_STORAGE_DIAGNOSTICS.md` 11 節）
+- IndexedDB の既知の挙動（6.0 節）: WebLLM 0.2.85 は IndexedDB の transaction の確定を待たずに保存を終えるため、確定に失敗すると
+  取得が 100% に達した後で `ArtifactIndexedDBCache failed to fetch` になる。PC 実機でこれが起きた（どちらの PC かは依頼の記載に無く**不明**）
+- iPhone（iOS 26.6・Chrome for iOS 154 / WebKit）では、Qwen3 0.6B・1.7B とも保存（Download）に成功した（`docs/AI_MODEL_BENCHMARK.md` 13 節）。
+  1.7B は保存の後の Run Benchmark でタブが終了した（保存の問題ではなく実行時のメモリの問題を疑っているが未確定）
+
 ## 8. 既知の制約
 
 - 保存場所の名前は WebLLM / tvmjs 側で固定（Cache API・IndexedDB は `webllm/model`・`webllm/config`・`webllm/wasm`、
   OPFS は `tvmjs-opfs-store/webllm/*`）。同じ origin の別アプリが WebLLM を使うと共有し得る（`docs/APPROVALS.md` AI-3）。
-- 書きかけ（取得途中で失敗）のモデルは「未ダウンロード」と表示され、「モデルを削除」は出ない（WebLLM の
-  存在確認はすべてのファイルがそろったときだけ「ある」とするため）。残ったファイルは次の Download で再利用される。
+- 書きかけ（取得途中で失敗）のモデルは、WebLLM の存在確認ではすべてのファイルがそろったときだけ「ある」となるため「ある」とは出ない。
+  PR #5 から、OPFS・Cache API では、そのモデルの記録が残っていれば「一部だけ保存（partial）」と表示し、対象モデル単位の「モデルを削除」を出す
+  （`countModelEntries`。読むだけ）。IndexedDB は数えられないので「未ダウンロード」のまま（不明）。残ったファイルは次の Download で再利用される。
+  partial の削除で WebLLM が tensor-cache.json を保存領域に持っていなければ、WebLLM はその一覧（小さな JSON）を配布元から取り直してから消す。
   全体を消す処理（OPFS root の削除・`caches.delete`・`indexedDB.deleteDatabase`・Clear-Site-Data）は持たない。
   （BROWSER STORAGE DIAGNOSTICS は `caches.delete` などを使うが、対象は診断用の `01as-beta-storage-diagnostic` だけで、
   モデルの保存領域には触れない。`docs/BROWSER_STORAGE_DIAGNOSTICS.md`）

@@ -351,3 +351,24 @@ Usage before を比べる。
 - `src/engine/**`・`src/data/**`・`src/domain/**`・`data/source/**`（`suggestFor` の snapshot
   `states=8376 sha256=602e43693d5df9fa3fc3429759bb0147a507fa1694f1091775fb1a4044f83877` を維持）
 - 01AS の利用者データ（`01as-beta:oas.*`）と Benchmark の結果・人手評価
+
+---
+
+## 11. 実機の事例（PR #5 で記録）
+
+依頼者の実機での結果です（同じ手順・9 節）。Case は切り分けの手がかりで、原因の断定ではありません。
+
+| PC | Case | 結果 | 読み方 |
+| --- | --- | --- | --- |
+| PC-A | **Case A** | OPFS / IndexedDB / Cache API のすべてが同じ target size で成功 | この PC の Browser Storage は正常。WebLLM の保存の実装の側を疑う（IndexedDB の保存の確定を待たない挙動。`docs/AI_MODEL_STORAGE.md` 6.0 節） |
+| PC-B | **Case B** | **約 300 MiB で 3 方式とも `QuotaExceededError`** | **WebLLM 固有ではなかった**（WebLLM を使わない診断でも同じ）。Browser / Chrome Profile / quota の管理の側の可能性が高い |
+
+### 11.1 `navigator.storage.estimate()` の quota は実際に書ける上限を保証しない
+
+PC-B では、画面の Origin Quota は約 10 GiB（`navigator.storage.estimate().quota`）だったのに、約 300 MiB で 3 方式とも書けなくなった。
+
+- `estimate()` の値は名前のとおりブラウザの**見積もり**で、MDN は圧縮・重複排除・セキュリティ上の難読化のため正確な値ではないと説明している
+  （https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/estimate 。仕様: https://storage.spec.whatwg.org/#dom-storagemanager-estimate ）
+- したがって「quota が十分に大きい」ことを、書き込みが成功する根拠にしない。実際に書けるかは、この診断のように**書いて確かめる**
+- PC-B で quota の見積もりと実際の上限が食い違った理由は**不明**（7.1 節の確認項目: シークレット / ゲストプロファイル・DevTools の
+  「Simulate custom storage quota」・別プロファイル / 別ブラウザでの再現）
