@@ -118,7 +118,9 @@ export interface AiModelLabPageProps {
    * テストで Mock Runtime を渡す。既定は template / WebLLM（選んだ保存方式で作る）。
    * 関数なら保存方式を変えるたびに呼ぶ（1 つの Runtime は 1 つの保存方式だけを使う）。
    */
-  readonly runtimes?: readonly BenchmarkRuntime[] | ((backend: ModelStorageBackend | null) => readonly BenchmarkRuntime[]);
+  readonly runtimes?:
+    | readonly BenchmarkRuntime[]
+    | ((backend: ModelStorageBackend | null, epoch: number) => readonly BenchmarkRuntime[]);
   readonly candidates?: readonly BenchmarkCandidate[];
   readonly buildDataset?: () => BenchmarkDataset;
   readonly probe?: () => Promise<DeviceReport>;
@@ -132,7 +134,8 @@ export interface AiModelLabPageProps {
   readonly storageDiagnostics?: Pick<StorageDiagnosticsSectionProps, 'adapters' | 'probeStorage' | 'requestPersist' | 'testMode'>;
 }
 
-const defaultRuntimes = (backend: ModelStorageBackend | null): readonly BenchmarkRuntime[] =>
+/** `epoch` は作り直すたびに変わる値（作り直しの合図。Runtime の中身には使わない）。 */
+const defaultRuntimes = (backend: ModelStorageBackend | null, _epoch = 0): readonly BenchmarkRuntime[] =>
   backend === null ? [createTemplateRuntime()] : [createTemplateRuntime(), createWebLlmRuntime({ storageBackend: backend })];
 
 /**
@@ -259,12 +262,17 @@ export default function AiModelLabPage({
     };
   }, [testRuntimeMode, candidates]);
   const templateOnly = useMemo(() => [createTemplateRuntime()], []);
+  /**
+   * Runtime を作り直した回数。bfcache から戻ったときに中止に応じない操作が残っていたら増やし、その Runtime を捨てる
+   * （WebLLM の Runtime は読み込みの最中だと次の読み込みを受け付けず、読み込みにはタイムアウトが無いため）。
+   */
+  const [runtimeEpoch, setRuntimeEpoch] = useState(0);
   const runtimes = useMemo(() => {
-    if (typeof injectedRuntimes === 'function') return injectedRuntimes(storageBackend);
+    if (typeof injectedRuntimes === 'function') return injectedRuntimes(storageBackend, runtimeEpoch);
     if (injectedRuntimes) return injectedRuntimes;
     if (testRuntimeMode !== null) return testRuntimes ?? templateOnly;
-    return defaultRuntimes(storageBackend);
-  }, [injectedRuntimes, storageBackend, testRuntimeMode, testRuntimes, templateOnly]);
+    return defaultRuntimes(storageBackend, runtimeEpoch);
+  }, [injectedRuntimes, storageBackend, testRuntimeMode, testRuntimes, templateOnly, runtimeEpoch]);
   const [dataset, setDataset] = useState<BenchmarkDataset | null>(null);
   const [device, setDevice] = useState<DeviceReport | null>(null);
   const [candidateId, setCandidateId] = useState(candidates[0]?.id ?? BASELINE_CANDIDATE_ID);
@@ -352,7 +360,11 @@ export default function AiModelLabPage({
       setLoaded(null);
       // pagehide で中止した操作が中止に応じずに残っていても（読み込みにはタイムアウトが無い）、画面を操作できる状態に戻す。
       // 古い操作はもう現在の操作ではないので、あとで終わっても busy などを書き換えない（endOperation）。
-      abortRef.current?.abort(LIFECYCLE_ABORT_REASON);
+      if (abortRef.current !== null) {
+        abortRef.current.abort(LIFECYCLE_ABORT_REASON);
+        // 中止に応じない操作を持つ Runtime は捨てて作り直す（その Runtime は次の読み込みを受け付けないことがある）。
+        setRuntimeEpoch((value) => value + 1);
+      }
       abortRef.current = null;
       setBusy('idle');
       setProgress(null);
@@ -662,12 +674,24 @@ export default function AiModelLabPage({
         modelSizeBytes: measuredSize[storageKey] ?? null,
         device,
         signal: options.signal,
-        onCaseStart: (item, index, count, runId) =>
-          options.checkpoint.update('generating', { runId, caseIndex: index, caseTotal: count, caseId: item.id }),
-        onCaseGenerated: (item, index, count, runId) =>
-          options.checkpoint.update('validating', { runId, caseIndex: index, caseTotal: count, caseId: item.id }),
-        onCaseComplete: (_, index) => setProgress({ fraction: (index + 1) / total, text: `${index + 1} / ${total}` }),
+        // Lab を離れた・ページを閉じたことで打ち切った実行は、あとで生成が返っても checkpoint・進み具合を書き換えない。
+        onCaseStart: (item, index, count, runId) => {
+          if (!abortedByLifecycle(options.signal)) {
+            options.checkpoint.update('generating', { runId, caseIndex: index, caseTotal: count, caseId: item.id });
+          }
+        },
+        onCaseGenerated: (item, index, count, runId) => {
+          if (!abortedByLifecycle(options.signal)) {
+            options.checkpoint.update('validating', { runId, caseIndex: index, caseTotal: count, caseId: item.id });
+          }
+        },
+        onCaseComplete: (_, index) => {
+          if (!abortedByLifecycle(options.signal)) setProgress({ fraction: (index + 1) / total, text: `${index + 1} / ${total}` });
+        },
       });
+      // 打ち切った実行の結果は保存・選択しない（新しい run の選択や、保存上限の中の run を押し出さない）。
+      // 利用者の「中止」で終わった run は、これまでどおり保存する。
+      if (abortedByLifecycle(options.signal)) return null;
       const saved = saveRun(result);
       setRuns(saved.runs);
       setSelectedRunId(result.runId);

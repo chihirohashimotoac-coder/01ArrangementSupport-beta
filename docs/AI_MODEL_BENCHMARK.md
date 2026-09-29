@@ -494,6 +494,8 @@ iPhone の WebKit がタブを終了するメモリの上限値は、公開さ�
 - MLCEngine は Runtime につき 1 つだけ作る（`engine ??=`）。WebLLM の `reload` は前のモデルを解放してから読み込む
 - 読み込みを同時に 2 つ走らせない（`runtime-unavailable`）
 - 解放（unload）の途中で次の読み込みを頼まれたら、解放が終わってから `reload` する。profile・候補の切り替えでは、解放が終わるまで Lab を busy にする（段階を始めさせない）
+- back-forward cache から戻ったとき、中止に応じない操作（読み込みにはタイムアウトが無い）が残っていれば、その操作を打ち切って Lab を操作できる状態に戻し、
+  Runtime を作り直す（WebLLM の Runtime は読み込みの最中だと次の読み込みを受け付けないため）。古い操作があとで終わっても画面の状態は書き換えない
 - 読み込み済みのモデルと context window が違えば読み込み直し、同じなら `already-loaded`
 - 候補の切り替え・profile の切り替え・保存方式の切り替え・Lab を離れる（unmount）・`pagehide` で解放する。MOBILE_FEASIBILITY の段階は終わったら解放する
 - 検査: `src/ai/benchmark/profiles.test.ts`（偽の WebLLM モジュールで MLCEngine の生成数・chatOpts・appConfig の同一性・同時読み込み）、
@@ -543,6 +545,7 @@ iPhone ではメモリが足りないとタブごと終了し、try / catch で�
 - 正常終了・利用者の「中止」・捕まえた失敗（読み込みの失敗など）で消します。Download / Load（手動の読み込み）も読み込みの間だけ書きます
 - Lab を離れた（画面の切り替え）・ページを閉じた（`pagehide`）ことによる中止では**消しません**（abort の理由 `lab-lifecycle` で区別）。
   その実行は段階の記録にも「中止」として残さず、次に開いたとき「正常終了しなかった」として記録します
+  （その実行の結果も保存・選択しません。中止に応じない生成があとで返っても、checkpoint・進み具合を書き換えません）
 - 次に Lab を開いたとき残っていれば、「前回のBenchmarkは正常終了しませんでした。」と Model・Profile・Phase・Case（`4 / 10`）・ID を表示し、
   JSON で保存できます。その段階は「正常終了しなかった（incomplete）」として段階の記録に残り、次の段階を推奨しません
 - これは **「前回の run が正常終了しなかった証拠」** で、ブラウザ・タブの crash の証拠ではありません（再読み込み・タブを閉じた場合も残ります）。原因は断定しません

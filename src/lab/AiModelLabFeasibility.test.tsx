@@ -507,6 +507,69 @@ describe('モデルの解放（メモリを残さない）', () => {
     expect(screen.getByTestId('lab-model-select')).toBeEnabled();
   });
 
+  it('bfcache で打ち切った実行があとで終わっても、結果を保存・選択せず、checkpoint を書き換えない', async () => {
+    const user = userEvent.setup();
+    let finish: (() => void) | null = null;
+    const mock = cachedMock({
+      respond: (request) =>
+        // 中止（signal）に応じず、あとで返る生成。
+        new Promise<string>((resolve) => (finish = () => resolve(faithfulResponse(request)))),
+    });
+    renderLab(mock);
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-run')).toBeEnabled());
+    await user.click(screen.getByTestId('lab-run'));
+    await waitFor(() => expect(readCheckpoint()?.phase).toBe('generating'));
+    window.dispatchEvent(new Event('pagehide'));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await screen.findByTestId('lab-stale-checkpoint');
+    finish!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(storedRuns()).toEqual([]);
+    expect(readCheckpoint()).toMatchObject({ phase: 'generating', caseIndex: 0 });
+    expect(screen.queryByTestId('lab-progress')).toBeNull();
+  });
+
+  it('bfcache から戻ったとき、中止に応じない操作を持つ Runtime を作り直し、もう一度読み込める', async () => {
+    const user = userEvent.setup();
+    const created: MockRuntime[] = [];
+    const factory = (_backend: unknown, epoch: number) => {
+      created[epoch] ??= (() => {
+        const mock = cachedMock({ id: `mock-${epoch}` });
+        if (epoch === 0) {
+          // 最初の Runtime の読み込みは中止に応じず、終わらない（WebLLM の読み込みにはタイムアウトが無い）。
+          vi.spyOn(mock, 'load').mockImplementation(() => new Promise(() => {}));
+        }
+        return mock;
+      })();
+      return [createTemplateRuntime(() => 0), created[epoch]];
+    };
+    render(
+      <AiModelLabPage
+        onBack={() => {}}
+        runtimes={factory}
+        candidates={[MEASURED, BASELINE_CANDIDATE]}
+        buildDataset={buildDataset}
+        probe={async () => DEVICE}
+        storageSupport={ALL_STORAGE}
+        probeStorage={async () => STATUS}
+        requestPersist={async () => false}
+      />,
+    );
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-select')).toBeDisabled());
+    window.dispatchEvent(new Event('pagehide'));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await waitFor(() => expect(created[1]).toBeDefined());
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    expect(created[1].loadedCandidateId()).toBe('fixture-model');
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();
