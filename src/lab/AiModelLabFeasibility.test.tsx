@@ -288,6 +288,60 @@ describe('MOBILE_FEASIBILITY の段階', () => {
   });
 });
 
+describe('Lab を離れた・ページを閉じたことによる中止では checkpoint を残す', () => {
+  function hangingMock() {
+    let settled = 0;
+    const mock = cachedMock({
+      respond: (request) =>
+        new Promise<string>((_, reject) => {
+          request.signal.addEventListener('abort', () => {
+            settled += 1;
+            reject(new BenchmarkRuntimeError('aborted', '中止'));
+          });
+        }),
+    });
+    return { mock, settled: () => settled };
+  }
+
+  async function startOneCase(user: ReturnType<typeof userEvent.setup>) {
+    await chooseMobile(user);
+    await user.click(screen.getByTestId('lab-stage-run-ONE_CASE'));
+    await user.click(screen.getByTestId('lab-stage-confirm-run'));
+    await waitFor(() => expect(readCheckpoint()?.phase).toBe('generating'));
+  }
+
+  it('Lab を離れる（unmount）と中止・解放するが、checkpoint は generating のまま残り、中止としては記録しない', async () => {
+    const user = userEvent.setup();
+    const { mock, settled } = hangingMock();
+    const view = renderLab(mock);
+    await startOneCase(user);
+    view.unmount();
+    await waitFor(() => expect(settled()).toBe(1));
+    await waitFor(() => expect(mock.residentModels()).toBe(0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(readCheckpoint()).toMatchObject({ phase: 'generating', stage: 'ONE_CASE', caseIndex: 0 });
+    const records = JSON.parse(window.localStorage.getItem(FEASIBILITY_RECORDS_KEY) ?? '{"records":[]}').records;
+    expect(records.filter((record: { stage: string }) => record.stage === 'ONE_CASE')).toEqual([]);
+
+    // 次に開くと「正常終了しませんでした」と示し、その段階を incomplete として記録する。
+    renderLab(cachedMock());
+    expect(await screen.findByTestId('lab-stale-checkpoint')).toHaveTextContent('前回のBenchmarkは正常終了しませんでした。');
+    await waitFor(() => expect(screen.getByTestId('lab-stage-last-ONE_CASE')).toHaveTextContent('正常終了しなかった'));
+  });
+
+  it('pagehide でも checkpoint を残す', async () => {
+    const user = userEvent.setup();
+    const { mock, settled } = hangingMock();
+    renderLab(mock);
+    await startOneCase(user);
+    window.dispatchEvent(new Event('pagehide'));
+    await waitFor(() => expect(settled()).toBe(1));
+    await waitFor(() => expect(screen.getByTestId('lab-stage-run-ONE_CASE')).toBeEnabled());
+    expect(readCheckpoint()).toMatchObject({ phase: 'generating', stage: 'ONE_CASE' });
+    expect(screen.getByTestId('lab-stage-last-ONE_CASE')).toHaveTextContent('未実施');
+  });
+});
+
 describe('crash checkpoint の復元', () => {
   const stale: BenchmarkCheckpoint = {
     schema: '01as-ai-benchmark-checkpoint',

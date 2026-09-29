@@ -207,6 +207,23 @@ function download(filename: string, content: string, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+/**
+ * Lab を離れた（unmount）・ページを閉じた（pagehide）ことによる中止の理由。
+ * 利用者の「中止」・捕まえた失敗と違い、この中止で終わった実行は「正常終了しなかった」ので checkpoint を消さない。
+ */
+const LIFECYCLE_ABORT_REASON = 'lab-lifecycle';
+
+/** Lab を離れた・ページを閉じたことによる中止か。 */
+function abortedByLifecycle(signal: AbortSignal): boolean {
+  return signal.aborted && signal.reason === LIFECYCLE_ABORT_REASON;
+}
+
+/** 実行が終わったあとで checkpoint を消す。Lab を離れた・ページを閉じたことによる中止なら残す。 */
+function finishCheckpoint(checkpoint: CheckpointSession, signal: AbortSignal): void {
+  if (abortedByLifecycle(signal)) return;
+  checkpoint.clear();
+}
+
 const CHECKPOINT_PHASE_LABEL: Readonly<Record<BenchmarkCheckpoint['phase'], string>> = {
   loading: 'loading（モデルの読み込み中）',
   loaded: 'loaded（読み込み直後）',
@@ -296,9 +313,10 @@ export default function AiModelLabPage({
 
   // Lab を離れたら、進行中の取得・Benchmark を中止し、読み込んだモデルを解放する
   // （画面の外で数 GB の取得が続いたり、WebGPU の資源が残ったりしないように）。
+  // この中止は利用者の「中止」ではないので、checkpoint は消さない（`LIFECYCLE_ABORT_REASON`）。
   useEffect(
     () => () => {
-      abortRef.current?.abort();
+      abortRef.current?.abort(LIFECYCLE_ABORT_REASON);
       for (const item of runtimes) void item.unload().catch(() => {});
     },
     [runtimes],
@@ -308,7 +326,7 @@ export default function AiModelLabPage({
   // checkpoint は消さない（途中で終わった run は、次に開いたとき「正常終了しなかった」と示す）。
   useEffect(() => {
     const release = () => {
-      abortRef.current?.abort();
+      abortRef.current?.abort(LIFECYCLE_ABORT_REASON);
       for (const item of runtimes) void item.unload().catch(() => {});
     };
     window.addEventListener('pagehide', release);
@@ -534,7 +552,7 @@ export default function AiModelLabPage({
           before,
         });
       } finally {
-        checkpoint.clear();
+        finishCheckpoint(checkpoint, controller.signal);
         setBusy('idle');
         setProgress(null);
         abortRef.current = null;
@@ -641,8 +659,8 @@ export default function AiModelLabPage({
     } catch (error) {
       setMessage(`Benchmark を実行できませんでした: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      // 正常終了・中止・捕まえた失敗のどれでも消す（残るのはページが途中で終わったときだけ）。
-      checkpoint.clear();
+      // 正常終了・中止・捕まえた失敗のどれでも消す（残るのは Lab を離れた・ページが途中で終わったときだけ）。
+      finishCheckpoint(checkpoint, controller.signal);
       setBusy('idle');
       setProgress(null);
       abortRef.current = null;
@@ -703,14 +721,18 @@ export default function AiModelLabPage({
             checkpoint,
             signal: controller.signal,
           });
-          if (result) recordStage(stageRecordFromRun(stage, result, new Date().toISOString()));
+          // Lab を離れた・ページを閉じたことによる中止は記録しない（残した checkpoint を、次に開いたとき「正常終了しなかった」として記録する）。
+          if (result && !abortedByLifecycle(controller.signal)) recordStage(stageRecordFromRun(stage, result, new Date().toISOString()));
         }
-        checkpoint.update('unloading');
+        // 中止の理由が Lab を離れたことなら、最後の段階（generating など）を残したまま解放する。
+        if (!abortedByLifecycle(controller.signal)) checkpoint.update('unloading');
         await runtime.unload();
       } catch (error) {
         await runtime.unload().catch(() => {});
         const at = new Date().toISOString();
-        if (phase === 'load') {
+        if (abortedByLifecycle(controller.signal)) {
+          // 記録しない（上と同じ理由）。
+        } else if (phase === 'load') {
           const diagnostics = await reportLoadFailure(error, {
             download: false,
             aborted: controller.signal.aborted,
@@ -726,8 +748,8 @@ export default function AiModelLabPage({
           }, at, controller.signal.aborted));
         }
       } finally {
-        checkpoint.clear();
-          setLoaded(null);
+        finishCheckpoint(checkpoint, controller.signal);
+        setLoaded(null);
         setBusy('idle');
         setProgress(null);
         abortRef.current = null;
