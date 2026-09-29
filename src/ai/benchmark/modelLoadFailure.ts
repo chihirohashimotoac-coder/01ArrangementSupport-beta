@@ -80,9 +80,29 @@ const STORAGE_ERROR_NAMES = new Set([
 const QUOTA_PATTERN = /quota\s*(exceeded|has been exceeded)|exceeded\s+(the\s+)?quota/i;
 const OPFS_UNAVAILABLE_PATTERN = /OPFS API unavailable|createSyncAccessHandle unavailable|getDirectory|crypto\.subtle\.digest is unavailable/i;
 // 通信 API の名前をソースへ書かない規則（src/ai/architecture.test.ts）のため f[e]tch と書く。
-const NETWORK_PATTERN = /failed to f[e]tch|unable to f[e]tch|networkerror|network error|network request failed|load failed|received status \d{3}|request failed|net::ERR_|ERR_(INTERNET|NETWORK|CONNECTION|NAME_NOT_RESOLVED|TIMED_OUT)/i;
+const NETWORK_PATTERN = /failed to f[e]tch|unable to f[e]tch|networkerror|network error|network request failed|network response was not ok|load failed|received status \d{3}|request failed|net::ERR_|ERR_(INTERNET|NETWORK|CONNECTION|NAME_NOT_RESOLVED|TIMED_OUT)/i;
 const GPU_PATTERN = /webgpu|gpu ?device|device was lost|device lost|shader-f16|requestAdapter|requestDevice|GPUBuffer|out of memory|\bOOM\b|maxBufferSize|maxStorageBufferBindingSize/i;
 const STORAGE_PATTERN = /OPFSStore|ArtifactOPFSCache|ArtifactIndexedDBCache|IndexedDB|IDBDatabase|on 'Cache'|Cache Storage|CacheStorage|storage/i;
+/**
+ * 保存したはずのファイルを保存領域から読み戻せなかった（WebLLM 0.2.85 / tvmjs の `fetchWithCache`）。
+ *
+ * - IndexedDB: `addToCache` は `store.add()` の成功（request の onsuccess）で終わり、transaction の確定（commit）を待たない。
+ *   確定に失敗すると、読み戻し（`asyncGetHelper`）が空になり `ArtifactIndexedDBCache failed to f…: <url>` を投げる
+ * - OPFS: `addToCache` のあとの読み戻しが空なら `ArtifactOPFSCache failed to f…: <url>`
+ * - Cache API: `cache.add()` のあとの `match()` が空なら `Cannot f… <url>`
+ *
+ * どれも**配布元からの取得（`addToCache`）が例外なく終わった後**にだけ投げられる（取得の失敗は `addToCache` が
+ * 先に投げる。IndexedDB では `Failed to store <url> with error: TypeError: Failed to f…`）ので、通信の失敗ではなく
+ * 保存領域の失敗として扱う。メッセージに「failed to f…」を含むため、通信の判定より先に見る。
+ */
+const POST_STORE_READ_PATTERN = /^Artifact(?:IndexedDB|OPFS)Cache failed to f[e]tch:/;
+const CACHE_API_POST_STORE_READ_PATTERN = /^Cannot f[e]tch https?:\/\//;
+
+/** 保存のあとの読み戻しの失敗か（`POST_STORE_READ_PATTERN`）。 */
+export function isPostStoreReadFailure(error: unknown, backend: ModelStorageBackend | null): boolean {
+  const message = errorMessageOf(error);
+  return POST_STORE_READ_PATTERN.test(message) || (backend === 'cache' && CACHE_API_POST_STORE_READ_PATTERN.test(message));
+}
 
 export interface FailureContext {
   /** 失敗したときの保存方式（モデルを持たない Runtime では null）。 */
@@ -104,6 +124,7 @@ export function classifyModelLoadFailure(error: unknown, context: FailureContext
     (OPFS_UNAVAILABLE_PATTERN.test(message) || name === 'SecurityError' || name === 'NotSupportedError')) {
     return 'opfs-unavailable';
   }
+  if (isPostStoreReadFailure(error, context.backend)) return 'storage-failed';
   if (name === 'NetworkError' || NETWORK_PATTERN.test(message)) return 'network-failed';
   if ((name !== null && GPU_ERROR_NAMES.has(name)) || GPU_PATTERN.test(message)) return 'gpu-load-failed';
   if ((name !== null && STORAGE_ERROR_NAMES.has(name)) || name === 'SecurityError' || STORAGE_PATTERN.test(message)) {
@@ -134,6 +155,8 @@ export interface ModelLoadFailureDiagnostics {
   readonly storage: StorageStatus | null;
   /** 取得を始める前の `navigator.storage.estimate()`（origin 全体）。 */
   readonly storageBefore: StorageStatus | null;
+  /** 保存のあとの読み戻しの失敗（`isPostStoreReadFailure`）。PR #5 以前の記録には無い。 */
+  readonly postStoreReadFailure?: boolean;
 }
 
 export interface FailureDescription {
@@ -177,7 +200,19 @@ export function describeModelLoadFailure(
     case 'storage-failed':
       return {
         suggestOpfs,
-        linesJa: ['モデルの保存領域の読み書きに失敗しました。', backendLine, ...opfsLine],
+        linesJa: [
+          'モデルの保存領域の読み書きに失敗しました。',
+          backendLine,
+          ...(diagnostics.postStoreReadFailure
+            ? [
+                '配布元からの取得は終わりましたが、保存したファイルを保存領域から読み戻せませんでした。通信の失敗ではありません。',
+                ...(backend === 'indexeddb'
+                  ? ['IndexedDB で保存の確定（transaction の commit）に失敗した可能性があります（容量制限の可能性を含みます。原因は断定できません）。']
+                  : []),
+              ]
+            : []),
+          ...opfsLine,
+        ],
       };
     case 'network-failed':
       return {
