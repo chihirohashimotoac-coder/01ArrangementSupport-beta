@@ -338,6 +338,9 @@ export default function AiModelLabPage({
   useEffect(() => {
     const restore = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
+      // pagehide でモデルを解放したので、画面の「読み込み済み」も外す（残すと Run が読み込みを飛ばして not-loaded になる）。
+      setLoaded(null);
+      setStorageRevision((value) => value + 1);
       const stale = readCheckpoint();
       if (stale === null) return;
       setStaleCheckpoint(stale);

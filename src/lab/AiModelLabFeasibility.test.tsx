@@ -465,6 +465,22 @@ describe('モデルの解放（メモリを残さない）', () => {
     expect(mock.residentModels()).toBe(0);
   });
 
+  it('back-forward cache から戻ったら「読み込み済み」を外し、Run の前に読み込み直させる', async () => {
+    const user = userEvent.setup();
+    const mock = cachedMock();
+    renderLab(mock);
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).toHaveTextContent('読み込み済み'));
+    window.dispatchEvent(new Event('pagehide'));
+    await waitFor(() => expect(mock.residentModels()).toBe(0));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await waitFor(() => expect(screen.getByTestId('lab-model-status')).not.toHaveTextContent('読み込み済み'));
+    expect(screen.getByTestId('lab-run')).toBeDisabled();
+    expect(await screen.findByTestId('lab-load')).toBeEnabled();
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();
