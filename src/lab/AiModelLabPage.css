@@ -234,3 +234,32 @@
   font-size: 0.75rem;
   color: var(--text-dim);
 }
+
+/* Benchmark Profile・MOBILE_FEASIBILITY の段階（PR #5） */
+.lab__warning {
+  color: var(--danger);
+}
+
+.lab__caution {
+  border-style: dashed !important;
+  color: var(--danger) !important;
+}
+
+.lab__stages {
+  margin: 12px 0;
+}
+
+.lab__stage-list {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.lab__stage {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+.lab__codes {
+  color: var(--danger);
+  font-size: 0.85em;
+}

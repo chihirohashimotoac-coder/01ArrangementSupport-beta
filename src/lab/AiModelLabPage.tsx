@@ -31,14 +31,38 @@ import {
   type HumanRating,
   type HumanRatings,
 } from '../ai/benchmark/export';
-import { summarizeRun, type Distribution } from '../ai/benchmark/metrics';
+import { hasV2Checks, summarizeRun, type Distribution } from '../ai/benchmark/metrics';
 import {
   classifyModelLoadFailure,
   describeModelLoadFailure,
   errorMessageOf,
   errorNameOf,
+  isPostStoreReadFailure,
   type ModelLoadFailureDiagnostics,
 } from '../ai/benchmark/modelLoadFailure';
+import {
+  BENCHMARK_PROFILES,
+  FEASIBILITY_STAGE_LABEL,
+  STANDARD_PROFILE,
+  adviseStages,
+  describeRunProfile,
+  profileById,
+  profileFitsCandidate,
+  profileGenerationSettings,
+  profileKey,
+  quickCaseIds,
+  runProfile,
+  runProfileOf,
+  stageCaseIds,
+  stageRecordFromLoad,
+  stageRecordFromLoadFailure,
+  stageRecordFromRun,
+  stageStatusLabel,
+  type BenchmarkProfile,
+  type FeasibilityStage,
+  type StageRecord,
+} from '../ai/benchmark/profiles';
+import { reevaluateRun, reevaluationBlocker } from '../ai/benchmark/reevaluate';
 import {
   MODEL_STORAGE_BACKENDS,
   MODEL_STORAGE_DESCRIPTION_JA,
@@ -68,12 +92,23 @@ import {
   type ThinkingMode,
 } from '../ai/benchmark/types';
 import { coreDataset } from './benchmarkDataset';
-import { deleteRun, loadRatings, loadRuns, saveRating, saveRun } from './labStorage';
+import {
+  appendStageRecord,
+  clearCheckpoint,
+  loadStageRecords,
+  readCheckpoint,
+  stageRecordFromCheckpoint,
+  startCheckpoint,
+  type BenchmarkCheckpoint,
+  type CheckpointSession,
+  type StoredStageRecord,
+} from './benchmarkCheckpoint';
+import { deleteRun, loadProfileId, loadRatings, loadRuns, saveProfileId, saveRating, saveRun } from './labStorage';
 import StorageDiagnosticsSection, { type StorageDiagnosticsSectionProps } from './StorageDiagnosticsSection';
 import './AiModelLabPage.css';
 
-type CacheState = 'unknown' | 'checking' | 'cached' | 'not-cached';
-type Busy = 'idle' | 'downloading' | 'loading' | 'running' | 'deleting';
+type CacheState = 'unknown' | 'checking' | 'cached' | 'not-cached' | 'partial';
+type Busy = 'idle' | 'downloading' | 'loading' | 'running' | 'deleting' | 'stage';
 /** 方式ごとの保存状況。`unavailable` はこのブラウザにその方式の API が無い。 */
 type Presence = boolean | null | 'unavailable';
 
@@ -141,6 +176,8 @@ const CACHE_LABEL: Record<CacheState, string> = {
   checking: '確認中…',
   cached: 'ダウンロード済み（キャッシュあり）',
   'not-cached': '未ダウンロード',
+  partial:
+    '一部だけ保存（partial。前回の取得が途中で止まった可能性）。Download で残りを取得するか、「モデルを削除」でこのモデルの分だけ消せます',
 };
 
 const LOAD_KIND_LABEL: Record<LoadRecord['kind'], string> = {
@@ -160,12 +197,13 @@ function download(filename: string, content: string, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/** 各カテゴリの先頭 2 件（計 10 件）。実機で最初に流れを確かめる用。 */
-function quickCaseIds(dataset: BenchmarkDataset): string[] {
-  return BENCHMARK_CATEGORIES.flatMap((category) =>
-    dataset.cases.filter((item) => item.category === category).slice(0, 2).map((item) => item.id),
-  );
-}
+const CHECKPOINT_PHASE_LABEL: Readonly<Record<BenchmarkCheckpoint['phase'], string>> = {
+  loading: 'loading（モデルの読み込み中）',
+  loaded: 'loaded（読み込み直後）',
+  generating: 'generating（生成中）',
+  validating: 'validating（生成が返った直後・検証中）',
+  unloading: 'unloading（解放中）',
+};
 
 export default function AiModelLabPage({
   onBack,
@@ -215,6 +253,21 @@ export default function AiModelLabPage({
   const abortRef = useRef<AbortController | null>(null);
   /** 永続化の要求は、この画面で 1 回まで（permission の連続要求をしない）。 */
   const persistRequestedRef = useRef(false);
+  /** Benchmark Profile（STANDARD / MOBILE_FEASIBILITY）。profile が違う run は比べない。 */
+  const [profileId, setProfileId] = useState<string>(() => loadProfileId() ?? STANDARD_PROFILE.id);
+  const profile: BenchmarkProfile = profileById(profileId) ?? STANDARD_PROFILE;
+  /**
+   * Lab を開いたときに残っていた checkpoint（前回の run が正常終了しなかった証拠。原因は断定しない）。
+   * 新しい run が checkpoint を書く前に、最初の描画で 1 回だけ読む。
+   */
+  const [staleCheckpoint, setStaleCheckpoint] = useState<BenchmarkCheckpoint | null>(() => readCheckpoint());
+  const [stageRecords, setStageRecords] = useState<StoredStageRecord[]>(() => {
+    const stale = readCheckpoint();
+    const record = stale ? stageRecordFromCheckpoint(stale) : null;
+    return record ? appendStageRecord(record) : loadStageRecords();
+  });
+  /** 推奨されていない段階を実行する前の確認。 */
+  const [confirmStage, setConfirmStage] = useState<FeasibilityStage | null>(null);
 
   // Lab を離れたら、進行中の取得・Benchmark を中止し、読み込んだモデルを解放する
   // （画面の外で数 GB の取得が続いたり、WebGPU の資源が残ったりしないように）。
@@ -225,6 +278,17 @@ export default function AiModelLabPage({
     },
     [runtimes],
   );
+
+  // ページを閉じる・別のページへ移る（pagehide）ときも、できる範囲で中止・解放する。
+  // checkpoint は消さない（途中で終わった run は、次に開いたとき「正常終了しなかった」と示す）。
+  useEffect(() => {
+    const release = () => {
+      abortRef.current?.abort();
+      for (const item of runtimes) void item.unload().catch(() => {});
+    };
+    window.addEventListener('pagehide', release);
+    return () => window.removeEventListener('pagehide', release);
+  }, [runtimes]);
 
   const candidate = candidates.find((item) => item.id === candidateId) ?? candidates[0];
   const runtime = runtimes.find((item) => item.supports(candidate)) ?? null;
@@ -271,9 +335,12 @@ export default function AiModelLabPage({
     let active = true;
     void runtime.isCached(candidate).then(async (cached) => {
       if (!active) return;
+      // 保存済みでなければ、取得が途中で止まった残り（partial）かを確かめる（読むだけ）。
+      const partial = cached === true ? false : await runtime.modelStorage?.hasPartial?.(candidate).catch(() => null);
+      if (!active) return;
       setCacheState((state) => ({
         ...state,
-        [storageKey]: cached === null ? 'unknown' : cached ? 'cached' : 'not-cached',
+        [storageKey]: cached === true ? 'cached' : partial === true ? 'partial' : cached === null ? 'unknown' : 'not-cached',
       }));
       if (cached !== true || candidate.runtime === 'deterministic') return;
       const size = await runtime.cachedSizeBytes(candidate).catch(() => null);
@@ -302,6 +369,32 @@ export default function AiModelLabPage({
     };
   }, [runtime, candidate, storageKey, storageSupport, storageRevision]);
 
+  /** 読み込んでいるモデルを解放する（候補・profile を切り替えるとき。メモリを残さない）。 */
+  const releaseLoaded = useCallback(async () => {
+    if (!loaded) return;
+    const current = loaded;
+    setLoaded(null);
+    await runtimes.find((item) => item.id === current.runtimeId)?.unload().catch(() => {});
+  }, [loaded, runtimes]);
+
+  /** 候補を切り替える。前の候補のモデルは解放する。 */
+  const changeCandidate = useCallback((next: string) => {
+    void releaseLoaded();
+    setCandidateId(next);
+    setConfirmDownload(false);
+    setConfirmDelete(false);
+    setConfirmStage(null);
+  }, [releaseLoaded]);
+
+  /** profile を切り替える。context window が変わるので、読み込んでいるモデルは解放する。 */
+  const changeProfile = useCallback((next: string) => {
+    if (!profileById(next)) return;
+    void releaseLoaded();
+    setProfileId(next);
+    saveProfileId(next);
+    setConfirmStage(null);
+  }, [releaseLoaded]);
+
   /** 保存方式を変える。Runtime を作り直し（前の Runtime は解放）、読み込み済みの状態を外す。取得はしない。 */
   const changeStorageBackend = useCallback((next: ModelStorageBackend) => {
     abortRef.current?.abort();
@@ -311,6 +404,52 @@ export default function AiModelLabPage({
     setConfirmDelete(false);
     setMessage(null);
   }, []);
+
+  /** checkpoint に書く、この実行の固定部分。 */
+  const checkpointBase = useCallback(
+    (stage: FeasibilityStage | null) => ({
+      candidateId: candidate.id,
+      candidateLabel: candidate.displayName,
+      runtimeModelId: candidate.runtimeModelId,
+      profileId: profile.id,
+      profileVersion: profile.version,
+      contextWindowSize: profile.contextWindowSize,
+      stage,
+      storageBackend: runtimeBackend,
+    }),
+    [candidate, profile, runtimeBackend],
+  );
+
+  /** 取得・読み込みの失敗の診断情報を作って画面に出す。 */
+  const reportLoadFailure = useCallback(
+    async (
+      error: unknown,
+      options: { download: boolean; aborted: boolean; progress: { fraction: number; text: string } | null; before: StorageStatus | null },
+    ): Promise<ModelLoadFailureDiagnostics> => {
+      const status = await probeStorage().catch(() => null);
+      const diagnostics: ModelLoadFailureDiagnostics = {
+        schema: '01as-ai-model-load-failure',
+        schemaVersion: 1,
+        occurredAt: new Date().toISOString(),
+        candidateId: candidate.id,
+        runtimeId: runtime?.id ?? '-',
+        runtimeModelId: candidate.runtimeModelId,
+        download: options.download,
+        storageBackend: runtimeBackend,
+        failureClass: classifyModelLoadFailure(error, { backend: runtimeBackend, aborted: options.aborted }),
+        errorName: errorNameOf(error),
+        message: errorMessageOf(error),
+        progressFraction: options.progress?.fraction ?? null,
+        progressText: options.progress?.text ?? null,
+        storage: status,
+        storageBefore: options.before,
+        postStoreReadFailure: isPostStoreReadFailure(error, runtimeBackend),
+      };
+      setFailure(diagnostics);
+      return diagnostics;
+    },
+    [candidate, runtime, runtimeBackend, probeStorage],
+  );
 
   const load = useCallback(
     async (allowDownload: boolean) => {
@@ -335,6 +474,9 @@ export default function AiModelLabPage({
         }
         before = await probeStorage().catch(() => null);
       }
+      // 読み込みでタブごと終了したときの手がかり（読み込みが返れば消す）。
+      const checkpoint = startCheckpoint(checkpointBase(null));
+      checkpoint.update('loading');
       try {
         if (loaded && loaded.runtimeId !== runtime.id) {
           await runtimes.find((item) => item.id === loaded.runtimeId)?.unload();
@@ -342,6 +484,7 @@ export default function AiModelLabPage({
         const record = await runtime.load(candidate, {
           allowDownload,
           signal: controller.signal,
+          contextWindowSize: profile.contextWindowSize,
           onProgress: (fraction, text) => {
             lastProgress = { fraction, text };
             setProgress({ fraction, text });
@@ -359,33 +502,21 @@ export default function AiModelLabPage({
         // 失敗した Runtime は、前に読み込んでいたモデルも外れていることがある（WebLLM の reload 失敗）。
         // 画面の「読み込み済み」を残すと、Run が読み込みを飛ばして全件 not-loaded になるので解除する。
         if (loaded?.runtimeId === runtime.id) setLoaded(null);
-        const status = await probeStorage().catch(() => null);
-        const progressAtFailure = lastProgress as { fraction: number; text: string } | null;
-        setFailure({
-          schema: '01as-ai-model-load-failure',
-          schemaVersion: 1,
-          occurredAt: new Date().toISOString(),
-          candidateId: candidate.id,
-          runtimeId: runtime.id,
-          runtimeModelId: candidate.runtimeModelId,
+        await reportLoadFailure(error, {
           download: allowDownload,
-          storageBackend: runtimeBackend,
-          failureClass: classifyModelLoadFailure(error, { backend: runtimeBackend, aborted: controller.signal.aborted }),
-          errorName: errorNameOf(error),
-          message: errorMessageOf(error),
-          progressFraction: progressAtFailure?.fraction ?? null,
-          progressText: progressAtFailure?.text ?? null,
-          storage: status,
-          storageBefore: before,
+          aborted: controller.signal.aborted,
+          progress: lastProgress as { fraction: number; text: string } | null,
+          before,
         });
       } finally {
+        checkpoint.clear();
         setBusy('idle');
         setProgress(null);
         abortRef.current = null;
         setStorageRevision((value) => value + 1);
       }
     },
-    [runtime, runtimes, candidate, loaded, storageKey, runtimeBackend, storageStatus, probeStorage, requestPersist],
+    [runtime, runtimes, candidate, loaded, storageKey, storageStatus, probeStorage, requestPersist, profile, reportLoadFailure, checkpointBase],
   );
 
   const unload = useCallback(async () => {
@@ -417,46 +548,188 @@ export default function AiModelLabPage({
     }
   }, [runtime, candidate, loaded, storageKey, runtimeBackend]);
 
-  const run = useCallback(async () => {
-    if (!runtime || !dataset) return;
-    setMessage(null);
-    setBusy('running');
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const caseIds = scope === 'quick' ? quickCaseIds(dataset) : undefined;
-    const total = caseIds?.length ?? dataset.cases.length;
-    setProgress({ fraction: 0, text: `0 / ${total}` });
-    try {
-      let loadRecord = loaded?.candidateId === candidate.id ? loaded.load : null;
-      if (loadRecord === null) {
-        // baseline など、取得の要らない Runtime だけがここを通る（取得は許可しない）。
-        loadRecord = await runtime.load(candidate, { allowDownload: false, signal: controller.signal });
-        setLoaded({ candidateId: candidate.id, runtimeId: runtime.id, load: loadRecord });
-      }
+  /** Benchmark を実行して保存する（読み込み済みの Runtime が前提）。 */
+  const executeRun = useCallback(
+    async (options: {
+      caseIds: string[] | undefined;
+      loadRecord: LoadRecord;
+      stage: FeasibilityStage | null;
+      checkpoint: CheckpointSession;
+      signal: AbortSignal;
+    }): Promise<BenchmarkRun | null> => {
+      if (!runtime || !dataset) return null;
+      const total = options.caseIds?.length ?? dataset.cases.length;
+      setProgress({ fraction: 0, text: `0 / ${total}` });
       const result = await runBenchmark({
         runtime,
         candidate,
         dataset,
-        caseIds,
-        settings: { thinking: effectiveThinking },
-        load: loadRecord,
+        caseIds: options.caseIds,
+        settings: { ...profileGenerationSettings(profile), thinking: effectiveThinking },
+        profile: runProfile(profile, options.stage),
+        load: options.loadRecord,
         modelSizeBytes: measuredSize[storageKey] ?? null,
         device,
-        signal: controller.signal,
+        signal: options.signal,
+        onCaseStart: (item, index, count, runId) =>
+          options.checkpoint.update('generating', { runId, caseIndex: index, caseTotal: count, caseId: item.id }),
+        onCaseGenerated: (item, index, count, runId) =>
+          options.checkpoint.update('validating', { runId, caseIndex: index, caseTotal: count, caseId: item.id }),
         onCaseComplete: (_, index) => setProgress({ fraction: (index + 1) / total, text: `${index + 1} / ${total}` }),
       });
       const saved = saveRun(result);
       setRuns(saved.runs);
       setSelectedRunId(result.runId);
       if (!saved.saved) setMessage('結果を保存できませんでした（容量など）。この画面では表示できます。export で保存してください。');
+      return result;
+    },
+    [runtime, dataset, candidate, profile, effectiveThinking, measuredSize, storageKey, device],
+  );
+
+  const run = useCallback(async () => {
+    if (!runtime || !dataset) return;
+    setMessage(null);
+    setBusy('running');
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const checkpoint = startCheckpoint(checkpointBase(null));
+    try {
+      let loadRecord = loaded?.candidateId === candidate.id ? loaded.load : null;
+      if (loadRecord === null) {
+        // baseline など、取得の要らない Runtime だけがここを通る（取得は許可しない）。
+        checkpoint.update('loading');
+        loadRecord = await runtime.load(candidate, {
+          allowDownload: false,
+          signal: controller.signal,
+          contextWindowSize: profile.contextWindowSize,
+        });
+        setLoaded({ candidateId: candidate.id, runtimeId: runtime.id, load: loadRecord });
+        checkpoint.update('loaded');
+      }
+      await executeRun({
+        caseIds: scope === 'quick' ? quickCaseIds(dataset) : undefined,
+        loadRecord,
+        stage: null,
+        checkpoint,
+        signal: controller.signal,
+      });
     } catch (error) {
       setMessage(`Benchmark を実行できませんでした: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      // 正常終了・中止・捕まえた失敗のどれでも消す（残るのはページが途中で終わったときだけ）。
+      checkpoint.clear();
       setBusy('idle');
       setProgress(null);
       abortRef.current = null;
     }
-  }, [runtime, dataset, scope, candidate, effectiveThinking, loaded, measuredSize, storageKey, device]);
+  }, [runtime, dataset, scope, candidate, loaded, profile, checkpointBase, executeRun]);
+
+  const recordStage = useCallback(
+    (record: StageRecord) => {
+      setStageRecords(appendStageRecord({
+        ...record,
+        candidateId: candidate.id,
+        profileKey: profileKey(profile),
+        storageBackend: runtimeBackend,
+      }));
+    },
+    [candidate, profile, runtimeBackend],
+  );
+
+  /**
+   * MOBILE_FEASIBILITY の 1 段階。毎回「解放 → 読み込み（取得しない）→（生成）→ 解放」で、前の段階のメモリを持ち越さない。
+   * LOAD ONLY は読み込んですぐ解放し、読み込みの成否と時間だけを測る。
+   */
+  const runStage = useCallback(
+    async (stage: FeasibilityStage) => {
+      if (!runtime || !dataset) return;
+      setConfirmStage(null);
+      setMessage(null);
+      setFailure(null);
+      setBusy('stage');
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const checkpoint = startCheckpoint(checkpointBase(stage));
+        let lastProgress: { fraction: number; text: string } | null = null;
+      let phase: 'load' | 'run' = 'load';
+      try {
+        checkpoint.update('loading');
+        await releaseLoaded();
+        setProgress({ fraction: 0, text: `${FEASIBILITY_STAGE_LABEL[stage]}: 読み込み中` });
+        const loadRecord = await runtime.load(candidate, {
+          allowDownload: false,
+          signal: controller.signal,
+          contextWindowSize: profile.contextWindowSize,
+          onProgress: (fraction, text) => {
+            lastProgress = { fraction, text };
+            setProgress({ fraction, text });
+          },
+        });
+        checkpoint.update('loaded');
+        phase = 'run';
+        if (stage === 'LOAD_ONLY') {
+          recordStage(stageRecordFromLoad(loadRecord, new Date().toISOString()));
+          setMessage(`LOAD ONLY: 読み込みに成功しました（${LOAD_KIND_LABEL[loadRecord.kind]}・${formatMs(loadRecord.loadTimeMs)}）。すぐに解放しました。`);
+        } else {
+          const result = await executeRun({
+            caseIds: stageCaseIds(stage, dataset),
+            loadRecord,
+            stage,
+            checkpoint,
+            signal: controller.signal,
+          });
+          if (result) recordStage(stageRecordFromRun(stage, result, new Date().toISOString()));
+        }
+        checkpoint.update('unloading');
+        await runtime.unload();
+      } catch (error) {
+        await runtime.unload().catch(() => {});
+        const at = new Date().toISOString();
+        if (phase === 'load') {
+          const diagnostics = await reportLoadFailure(error, {
+            download: false,
+            aborted: controller.signal.aborted,
+            progress: lastProgress as { fraction: number; text: string } | null,
+            before: null,
+          });
+          recordStage(stageRecordFromLoadFailure(stage, diagnostics, at, controller.signal.aborted));
+        } else {
+          setMessage(`${FEASIBILITY_STAGE_LABEL[stage]} を実行できませんでした: ${errorMessageOf(error)}`);
+          recordStage(stageRecordFromLoadFailure(stage, {
+            failureClass: classifyModelLoadFailure(error, { backend: runtimeBackend, aborted: controller.signal.aborted }),
+            message: errorMessageOf(error),
+          }, at, controller.signal.aborted));
+        }
+      } finally {
+        checkpoint.clear();
+          setLoaded(null);
+        setBusy('idle');
+        setProgress(null);
+        abortRef.current = null;
+        setStorageRevision((value) => value + 1);
+      }
+    },
+    [runtime, dataset, candidate, profile, runtimeBackend, checkpointBase, releaseLoaded, executeRun, recordStage, reportLoadFailure],
+  );
+
+  /** 保存済みの run を、モデルを再実行せずに現在の検証で評価し直す（元の run は残す）。 */
+  const reevaluate = useCallback(
+    (target: BenchmarkRun) => {
+      const result = reevaluateRun(target, datasetMatchingRun(dataset, target), new Date().toISOString());
+      if (!result.ok) {
+        setMessage(`再評価できませんでした: ${result.reasonJa}`);
+        return;
+      }
+      const saved = saveRun(result.run);
+      setRuns(saved.runs);
+      setSelectedRunId(result.run.runId);
+      setMessage(
+        `現在の検証（validator v${result.run.validatorVersion}）で ${result.reevaluatedCases} 件を評価し直しました（元の run は残っています）。` +
+          (saved.saved ? '' : ' 保存できなかったので、export で保存してください。'),
+      );
+    },
+    [dataset],
+  );
 
   const selectedRun = runs.find((item) => item.runId === selectedRunId) ?? null;
   // まだ結果が無い間は確認中（isCached は取得をしない）。
@@ -472,8 +745,17 @@ export default function AiModelLabPage({
     : MODEL_STORAGE_BACKENDS.filter((backend) => backend !== runtimeBackend && presence[backend] === true);
   const runnable = candidate.labAvailability === 'RUNNABLE' && runtime !== null;
   const needsModel = candidate.runtime !== 'deterministic';
+  const profileFit = profileFitsCandidate(profile, candidate, dataset);
   const canRun = runnable && dataset !== null && !labBusy && compatibility.verdict !== 'UNSUPPORTED' &&
-    (!needsModel || isLoaded);
+    (!needsModel || isLoaded) && profileFit.ok && !profile.staged;
+  /** 段階は保存済みのモデルを読み込むだけ（取得しない）。 */
+  const canStage = runnable && dataset !== null && !labBusy && compatibility.verdict !== 'UNSUPPORTED' &&
+    profileFit.ok && (!needsModel || cache === 'cached' || isLoaded);
+  const stageAdvice = adviseStages(
+    stageRecords.filter((record) =>
+      record.candidateId === candidate.id && record.profileKey === profileKey(profile) && record.storageBackend === runtimeBackend),
+    staleCheckpoint !== null,
+  );
 
   const rate = (responseId: string, rating: HumanRating) => setRatings(saveRating(responseId, rating));
 
@@ -559,6 +841,61 @@ export default function AiModelLabPage({
               <dd>{failure.occurredAt}</dd>
             </dl>
           </details>
+        </div>
+      )}
+
+      {staleCheckpoint && (
+        <div className="lab__message lab__failure" role="alert" data-testid="lab-stale-checkpoint">
+          <p>
+            <strong>前回のBenchmarkは正常終了しませんでした。</strong>
+          </p>
+          <dl className="lab__facts">
+            <dt>Model</dt>
+            <dd data-testid="checkpoint-model">{staleCheckpoint.candidateLabel}</dd>
+            <dt>Profile</dt>
+            <dd data-testid="checkpoint-profile">
+              {staleCheckpoint.profileId} v{staleCheckpoint.profileVersion}（context {staleCheckpoint.contextWindowSize ?? '既定'}）
+              {staleCheckpoint.stage ? ` / ${FEASIBILITY_STAGE_LABEL[staleCheckpoint.stage]}` : ''}
+            </dd>
+            <dt>Phase</dt>
+            <dd data-testid="checkpoint-phase">{CHECKPOINT_PHASE_LABEL[staleCheckpoint.phase]}</dd>
+            <dt>Case</dt>
+            <dd data-testid="checkpoint-case">
+              {staleCheckpoint.caseIndex === null
+                ? '—（生成の前）'
+                : `${staleCheckpoint.caseIndex + 1} / ${staleCheckpoint.caseTotal ?? '?'}`}
+            </dd>
+            <dt>ID</dt>
+            <dd data-testid="checkpoint-case-id">{staleCheckpoint.caseId ?? '—'}</dd>
+            <dt>Storage backend</dt>
+            <dd>{staleCheckpoint.storageBackend ?? '—'}</dd>
+            <dt>最後の記録</dt>
+            <dd>{staleCheckpoint.updatedAt}</dd>
+          </dl>
+          <p className="lab__hint">
+            これは「前回の run が正常終了しなかった」記録です。ブラウザ・タブが強制終了した証拠ではなく、原因（メモリ不足など）は断定できません
+            （再読み込み・タブを閉じた場合も残ります）。次の段階へ進む前に、同じ段階をもう一度試すか、条件を見直してください。
+          </p>
+          <div className="lab__actions">
+            <button
+              type="button"
+              data-testid="checkpoint-export"
+              onClick={() =>
+                download(`01as-ai-benchmark-checkpoint-${staleCheckpoint.updatedAt.replace(/[:.]/g, '-')}.json`, JSON.stringify(staleCheckpoint, null, 2), 'application/json')}
+            >
+              checkpoint を保存（JSON）
+            </button>
+            <button
+              type="button"
+              data-testid="checkpoint-dismiss"
+              onClick={() => {
+                clearCheckpoint();
+                setStaleCheckpoint(null);
+              }}
+            >
+              確認した（表示を閉じる。段階の記録には残ります）
+            </button>
+          </div>
         </div>
       )}
 
@@ -661,11 +998,7 @@ export default function AiModelLabPage({
             data-testid="lab-model-select"
             value={candidate.id}
             disabled={labBusy}
-            onChange={(event) => {
-              setCandidateId(event.target.value);
-              setConfirmDownload(false);
-              setConfirmDelete(false);
-            }}
+            onChange={(event) => changeCandidate(event.target.value)}
           >
             {candidates.map((item) => (
               <option key={item.id} value={item.id}>
@@ -753,7 +1086,7 @@ export default function AiModelLabPage({
                 disabled={labBusy || compatibility.verdict === 'UNSUPPORTED'}
                 onClick={() => setConfirmDownload(true)}
               >
-                Download
+                {cache === 'partial' ? 'Download（残りを取得）' : 'Download'}
               </button>
             )}
             {!isLoaded && cache === 'cached' && (
@@ -766,7 +1099,7 @@ export default function AiModelLabPage({
                 Unload
               </button>
             )}
-            {cache === 'cached' && (
+            {(cache === 'cached' || cache === 'partial') && (
               <button
                 type="button"
                 className="lab__danger"
@@ -777,7 +1110,7 @@ export default function AiModelLabPage({
                 モデルを削除
               </button>
             )}
-            {(busy === 'downloading' || busy === 'loading') && (
+            {(busy === 'downloading' || busy === 'loading' || busy === 'stage') && (
               <button type="button" onClick={() => abortRef.current?.abort()}>
                 中止
               </button>
@@ -857,13 +1190,85 @@ export default function AiModelLabPage({
           <dd>{PROMPT_VERSION_LABEL}</dd>
         </dl>
         <div className="lab__options">
-          <label className="lab__field">
-            <span>ケース</span>
-            <select value={scope} onChange={(event) => setScope(event.target.value as 'all' | 'quick')} disabled={labBusy}>
-              <option value="all">すべて</option>
-              <option value="quick">クイック（各カテゴリ 2 件）</option>
+          <label className="lab__field lab__field--wide">
+            <span>Benchmark Profile</span>
+            <select
+              data-testid="lab-profile-select"
+              value={profile.id}
+              disabled={labBusy}
+              onChange={(event) => changeProfile(event.target.value)}
+            >
+              {BENCHMARK_PROFILES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.labelJa}
+                </option>
+              ))}
             </select>
           </label>
+        </div>
+        <dl className="lab__facts" data-testid="lab-profile-facts">
+          <dt>Profile</dt>
+          <dd data-testid="lab-profile">{profile.id} v{profile.version}</dd>
+          <dt>目的</dt>
+          <dd>{profile.purposeJa}</dd>
+          <dt>Context window</dt>
+          <dd data-testid="lab-profile-context">
+            {profile.contextWindowSize === null
+              ? `Runtime の既定（${candidate.contextWindow ?? '不明'}）`
+              : `${profile.contextWindowSize}（WebLLM の context_window_size を上書き。KV cache を小さくする）`}
+          </dd>
+          <dt>max_tokens</dt>
+          <dd data-testid="lab-profile-max-tokens">{profile.maxTokens}</dd>
+          {candidate.promptTokenMeasurement && (
+            <>
+              <dt>Prompt tokens（計測値）</dt>
+              <dd>
+                平均 {candidate.promptTokenMeasurement.meanTokens} / p95 {candidate.promptTokenMeasurement.p95Tokens} / 最大{' '}
+                {candidate.promptTokenMeasurement.maxTokens}（{candidate.promptTokenMeasurement.maxCaseId}）
+              </dd>
+            </>
+          )}
+        </dl>
+        {!profile.qualityBenchmark && (
+          <p className="lab__hint lab__warning" data-testid="lab-profile-warning">
+            {profile.id} は品質の benchmark ではありません（スマートフォンで安定して読み込み・生成できるかの確認）。
+            context window・max_tokens が STANDARD と違うので、結果を STANDARD と直接比べないでください（run に profile を記録し、export でも混ぜません）。
+          </p>
+        )}
+        {!profileFit.ok && (
+          <p className="lab__hint lab__warning" data-testid="lab-profile-unfit">
+            {profileFit.reasonJa}
+          </p>
+        )}
+
+        {profile.staged ? (
+          <FeasibilityStages
+            advice={stageAdvice}
+            disabled={!canStage}
+            running={busy === 'stage'}
+            needsDownload={needsModel && runnable && cache !== 'cached' && !isLoaded}
+            confirmStage={confirmStage}
+            onRequest={(stage) => {
+              const item = stageAdvice.find((advice) => advice.stage === stage);
+              if (item?.recommended) void runStage(stage);
+              else setConfirmStage(stage);
+            }}
+            onConfirm={(stage) => void runStage(stage)}
+            onCancel={() => setConfirmStage(null)}
+            onAbort={() => abortRef.current?.abort()}
+          />
+        ) : null}
+
+        <div className="lab__options">
+          {!profile.staged && (
+            <label className="lab__field">
+              <span>ケース</span>
+              <select value={scope} onChange={(event) => setScope(event.target.value as 'all' | 'quick')} disabled={labBusy}>
+                <option value="all">すべて</option>
+                <option value="quick">クイック（各カテゴリ 2 件）</option>
+              </select>
+            </label>
+          )}
           {candidate.supportsThinkingToggle && (
             <label className="lab__field">
               <span>Thinking</span>
@@ -879,18 +1284,22 @@ export default function AiModelLabPage({
             </label>
           )}
         </div>
-        <div className="lab__actions">
-          <button type="button" data-testid="lab-run" disabled={!canRun} onClick={() => void run()}>
-            Run Benchmark
-          </button>
-          {busy === 'running' && (
-            <button type="button" onClick={() => abortRef.current?.abort()}>
-              中止
-            </button>
-          )}
-        </div>
-        {needsModel && !isLoaded && runnable && (
-          <p className="lab__hint">先にモデルを Download / Load してください（Benchmark はモデルを取得しません）。</p>
+        {!profile.staged && (
+          <>
+            <div className="lab__actions">
+              <button type="button" data-testid="lab-run" disabled={!canRun} onClick={() => void run()}>
+                Run Benchmark
+              </button>
+              {busy === 'running' && (
+                <button type="button" onClick={() => abortRef.current?.abort()}>
+                  中止
+                </button>
+              )}
+            </div>
+            {needsModel && !isLoaded && runnable && (
+              <p className="lab__hint">先にモデルを Download / Load してください（Benchmark はモデルを取得しません）。</p>
+            )}
+          </>
         )}
       </section>
 
@@ -906,6 +1315,8 @@ export default function AiModelLabPage({
         ratings={ratings}
         onRate={rate}
         dataset={dataset}
+        onReevaluate={reevaluate}
+        busy={labBusy}
       />
     </div>
   );
@@ -919,9 +1330,19 @@ interface ResultsSectionProps {
   readonly ratings: HumanRatings;
   readonly onRate: (responseId: string, rating: HumanRating) => void;
   readonly dataset: BenchmarkDataset | null;
+  readonly onReevaluate: (run: BenchmarkRun) => void;
+  readonly busy: boolean;
 }
 
-function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate, dataset }: ResultsSectionProps) {
+function hasV2RunChecks(run: BenchmarkRun): boolean {
+  return run.results.length > 0 && run.results.every(hasV2Checks);
+}
+
+function countOf(value: number | null, total: number): string {
+  return value === null ? '未計測（validator v1 の記録。「現在の検証で再評価」で計測できます）' : `${value} / ${total}`;
+}
+
+function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate, dataset, onReevaluate, busy }: ResultsSectionProps) {
   if (runs.length === 0 || selectedRun === null) {
     return (
       <section className="lab__section" data-testid="lab-results">
@@ -936,6 +1357,8 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
   const datasetForRun = datasetMatchingRun(dataset, selectedRun);
   const stamp = selectedRun.startedAt.replace(/[:.]/g, '-');
   const titleOf = (caseId: string) => datasetForRun?.cases.find((item) => item.id === caseId)?.titleJa ?? caseId;
+  const runProfileInfo = runProfileOf(selectedRun);
+  const reevaluateBlocked = reevaluationBlocker(selectedRun, datasetForRun);
 
   return (
     <section className="lab__section" data-testid="lab-results">
@@ -945,11 +1368,31 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
         <select value={selectedRun.runId} onChange={(event) => onSelect(event.target.value)}>
           {runs.map((item) => (
             <option key={item.runId} value={item.runId}>
-              {item.candidateId} / thinking {item.settings.thinking} / {item.results.length} 件 / {item.startedAt}
+              [{runProfileOf(item).id}] {item.candidateId} / thinking {item.settings.thinking} / {item.results.length} 件 /{' '}
+              {item.startedAt}
+              {item.reevaluation ? ` / 再評価 v${item.validatorVersion}` : ''}
             </option>
           ))}
         </select>
       </label>
+
+      <dl className="lab__facts" data-testid="lab-run-profile">
+        <dt>Profile</dt>
+        <dd data-testid="result-profile">{describeRunProfile(selectedRun)}</dd>
+        <dt>Validator</dt>
+        <dd data-testid="result-validator">
+          v{selectedRun.validatorVersion ?? 1}
+          {selectedRun.reevaluation
+            ? `（再評価。元の run: ${selectedRun.reevaluation.originalRunId}・元の validator v${selectedRun.reevaluation.originalValidatorVersion}）`
+            : ''}
+        </dd>
+      </dl>
+      {runProfileInfo.id !== STANDARD_PROFILE.id && (
+        <p className="lab__hint lab__warning" data-testid="result-profile-warning">
+          この run は {runProfileInfo.id} v{runProfileInfo.version} の結果です。品質の benchmark ではなく、条件（context window・max_tokens）が
+          STANDARD と違うので、STANDARD の結果と直接比べないでください。
+        </p>
+      )}
 
       <h3>01AS の重要指標（優先順）</h3>
       <dl className="lab__facts lab__metrics" data-testid="lab-metrics">
@@ -964,6 +1407,18 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
         <dt>3. Validation pass</dt>
         <dd data-testid="metric-validation">
           {summary.validationPassed} / {summary.total}（失敗率 {formatRate(summary.validationFailureRate)}）
+        </dd>
+        <dt>3a. Repetition</dt>
+        <dd data-testid="metric-repetition">{countOf(summary.withRepetition, summary.total)}</dd>
+        <dt>3b. Output limit reached</dt>
+        <dd data-testid="metric-output-limit">{countOf(summary.withOutputLimit, summary.total)}</dd>
+        <dt>3c. Internal code leak</dt>
+        <dd data-testid="metric-internal-code">{countOf(summary.withInternalCodeLeak, summary.total)}</dd>
+        <dt>Clean response</dt>
+        <dd data-testid="metric-clean">
+          {summary.cleanResponses === null
+            ? countOf(null, summary.total)
+            : `${summary.cleanResponses} / ${summary.total}（${formatRate(summary.cleanResponseRate)}）`}
         </dd>
         <dt>4. 日本語（人手評価）</dt>
         <dd data-testid="metric-human">
@@ -1054,10 +1509,24 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
         >
           Export CSV（blind）
         </button>
+        <button
+          type="button"
+          data-testid="lab-reevaluate"
+          disabled={busy || reevaluateBlocked !== null}
+          title={reevaluateBlocked ?? undefined}
+          onClick={() => onReevaluate(selectedRun)}
+        >
+          Re-evaluate with current checks
+        </button>
         <button type="button" className="lab__danger" onClick={() => onDelete(selectedRun.runId)}>
           この結果を削除
         </button>
       </div>
+      {reevaluateBlocked !== null && !hasV2RunChecks(selectedRun) && (
+        <p className="lab__hint" data-testid="lab-reevaluate-blocked">
+          再評価できません: {reevaluateBlocked}
+        </p>
+      )}
 
       <h3>応答と人手評価</h3>
       <ol className="lab__responses" data-testid="lab-responses">
@@ -1086,15 +1555,26 @@ function ResponseItem({
   readonly rating: HumanRating;
   readonly onRate: (rating: HumanRating) => void;
 }) {
-  const issues = [...result.contradictions, ...result.unsupportedClaims, result.shapeProblem, result.error].filter(
-    (item): item is string => typeof item === 'string' && item.length > 0,
-  );
+  const issues = [
+    ...result.contradictions,
+    ...result.unsupportedClaims,
+    result.shapeProblem,
+    result.repetition ? `反復: ${result.repetition}` : null,
+    result.outputLimit
+      ? `出力の上限に達しました（${result.outputLimit.basis === 'finish-reason' ? 'finish_reason: length' : `出力 ${result.outputLimit.outputTokens ?? '?'} tokens / 上限 ${result.outputLimit.maxTokens}（finish_reason なし・トークン数で判断）`}）`
+      : null,
+    ...(result.internalCodeLeaks ?? []).map((code) => `内部の code が本文に出ています: ${code}`),
+    result.error,
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0);
   return (
     <li className="lab__response" data-testid={`lab-response-${result.caseId}`}>
       <details>
         <summary>
           <span className={result.validationPassed ? 'lab__pass' : 'lab__fail'}>{result.validationPassed ? 'PASS' : 'FAIL'}</span>{' '}
           {result.caseId} — {title}
+          {result.failureCodes && result.failureCodes.length > 0 && (
+            <span className="lab__codes" data-testid={`lab-response-codes-${result.caseId}`}> [{result.failureCodes.join(' ')}]</span>
+          )}
         </summary>
         <p className="lab__text">{result.text ?? '（応答なし）'}</p>
         {issues.length > 0 && (
@@ -1143,5 +1623,113 @@ function ResponseItem({
         </div>
       </details>
     </li>
+  );
+}
+
+interface FeasibilityStagesProps {
+  readonly advice: readonly ReturnType<typeof adviseStages>[number][];
+  readonly disabled: boolean;
+  readonly running: boolean;
+  /** モデルが保存されていない（段階は取得しないので、先に Download が必要）。 */
+  readonly needsDownload: boolean;
+  readonly confirmStage: FeasibilityStage | null;
+  readonly onRequest: (stage: FeasibilityStage) => void;
+  readonly onConfirm: (stage: FeasibilityStage) => void;
+  readonly onCancel: () => void;
+  readonly onAbort: () => void;
+}
+
+/**
+ * MOBILE_FEASIBILITY の段階（LOAD ONLY → 1 CASE → QUICK 10 → FULL 100）。
+ * 前の段階が成功していない・checkpoint が残っている・GPU の失敗を記録しているときは、次の段階を推奨せず、確認を挟む。
+ */
+function FeasibilityStages({
+  advice,
+  disabled,
+  running,
+  needsDownload,
+  confirmStage,
+  onRequest,
+  onConfirm,
+  onCancel,
+  onAbort,
+}: FeasibilityStagesProps) {
+  const pending = confirmStage ? advice.find((item) => item.stage === confirmStage) : undefined;
+  return (
+    <div className="lab__stages" data-testid="lab-stages">
+      <p className="lab__hint">
+        段階ごとに「解放 → 保存済みのモデルを読み込む（取得しない）→ 生成 → 解放」で実行します。いきなり FULL 100 を実行せず、
+        前の段階が成功してから次へ進んでください。
+      </p>
+      {needsDownload && (
+        <p className="lab__hint lab__warning" data-testid="lab-stages-needs-download">
+          このモデルはこの保存方式に保存されていません。段階はモデルを取得しないので、先に Download してください。
+        </p>
+      )}
+      <ol className="lab__stage-list">
+        {advice.map((item) => (
+          <li key={item.stage} className="lab__stage" data-testid={`lab-stage-${item.stage}`}>
+            <div className="lab__actions">
+              <button
+                type="button"
+                data-testid={`lab-stage-run-${item.stage}`}
+                className={item.recommended ? undefined : 'lab__caution'}
+                disabled={disabled}
+                onClick={() => onRequest(item.stage)}
+              >
+                {FEASIBILITY_STAGE_LABEL[item.stage]}
+                {item.recommended ? '' : '（非推奨）'}
+              </button>
+              <span data-testid={`lab-stage-last-${item.stage}`}>
+                {item.last === null
+                  ? '未実施'
+                  : `前回: ${stageStatusLabel(item.last.status)}` +
+                    (item.last.loadTimeMs === null ? '' : `・load ${formatMs(item.last.loadTimeMs)}`) +
+                    (item.last.casesTotal > 0 ? `・${item.last.casesCompleted} / ${item.last.casesTotal} 件` : '') +
+                    (item.last.gpuError ? '・GPU error' : '')}
+              </span>
+            </div>
+            {item.last?.detail && <p className="lab__hint">{item.last.detail}</p>}
+            {!item.recommended && (
+              <ul className="lab__hint" data-testid={`lab-stage-reasons-${item.stage}`}>
+                {item.reasonsJa.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
+      {running && (
+        <div className="lab__actions">
+          <button type="button" data-testid="lab-stage-abort" onClick={onAbort}>
+            中止
+          </button>
+        </div>
+      )}
+      {pending && (
+        <div className="lab__confirm" role="dialog" aria-label="段階の確認" data-testid="lab-stage-confirm">
+          <p>
+            {FEASIBILITY_STAGE_LABEL[pending.stage]} は<strong>推奨されていません</strong>。次の理由があります。
+          </p>
+          <ul>
+            {pending.reasonsJa.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <p className="lab__hint">
+            実行すると、端末のメモリ不足でタブごと終了する可能性があります（保存中のほかの作業も失われることがあります）。
+          </p>
+          <div className="lab__actions">
+            <button type="button" className="lab__danger" data-testid="lab-stage-confirm-run" onClick={() => onConfirm(pending.stage)}>
+              理解したうえで実行する
+            </button>
+            <button type="button" data-testid="lab-stage-confirm-cancel" onClick={onCancel}>
+              やめる
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

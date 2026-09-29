@@ -63,6 +63,21 @@ export function deleteRun(runId: string): BenchmarkRun[] {
 }
 
 // ---------------------------------------------------------------------------
+// 選んでいる Benchmark Profile（画面の選択を覚えるだけ）
+// ---------------------------------------------------------------------------
+
+export const BENCHMARK_PROFILE_KEY = namespacedKey('ai.benchmark.profile.v1');
+
+export function loadProfileId(): string | null {
+  const stored = readJson<unknown>(BENCHMARK_PROFILE_KEY, null);
+  return typeof stored === 'string' ? stored : null;
+}
+
+export function saveProfileId(profileId: string): void {
+  writeJson(BENCHMARK_PROFILE_KEY, profileId);
+}
+
+// ---------------------------------------------------------------------------
 // BROWSER STORAGE DIAGNOSTICS の結果（数値と文字列だけ。テストデータそのものは保存しない）
 // ---------------------------------------------------------------------------
 
