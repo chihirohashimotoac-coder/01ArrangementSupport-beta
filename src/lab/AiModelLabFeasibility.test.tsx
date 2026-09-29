@@ -481,6 +481,32 @@ describe('モデルの解放（メモリを残さない）', () => {
     expect(await screen.findByTestId('lab-load')).toBeEnabled();
   });
 
+  it('中止に応じない読み込みの途中で bfcache に入って戻っても、Lab は操作できる状態に戻り、古い読み込みは画面を書き換えない', async () => {
+    const user = userEvent.setup();
+    const mock = cachedMock();
+    const realLoad = mock.load.bind(mock);
+    let finishLoad: (() => void) | null = null;
+    vi.spyOn(mock, 'load').mockImplementationOnce(async (candidate, options) => {
+      // 中止（signal）に応じず、あとで終わる読み込み（WebLLM の読み込みにはタイムアウトが無い）。
+      await new Promise<void>((resolve) => (finishLoad = resolve));
+      return realLoad(candidate, options);
+    });
+    renderLab(mock);
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(screen.getByTestId('lab-model-select')).toBeDisabled());
+    window.dispatchEvent(new Event('pagehide'));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await waitFor(() => expect(screen.getByTestId('lab-model-select')).toBeEnabled());
+    expect(screen.getByTestId('lab-load')).toBeEnabled();
+    // 古い読み込みがあとで終わっても、「読み込み済み」にはしない。
+    finishLoad!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId('lab-model-status')).not.toHaveTextContent('読み込み済み');
+    expect(screen.getByTestId('lab-model-select')).toBeEnabled();
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();

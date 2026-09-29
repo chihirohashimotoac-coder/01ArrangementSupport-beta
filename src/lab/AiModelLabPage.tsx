@@ -293,6 +293,16 @@ export default function AiModelLabPage({
   /** download 前後の origin usage の差（候補 × 保存方式ごと）。 */
   const [footprint, setFootprint] = useState<Record<string, number | null>>({});
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * 操作（取得・読み込み・Benchmark・段階）の終わりの後片付け。まだその操作が現在の操作のときだけ busy などを戻す
+   * （bfcache から戻ったときに打ち切った古い操作が、あとから新しい操作の状態を書き換えないように）。
+   */
+  const endOperation = useCallback((controller: AbortController) => {
+    if (abortRef.current !== controller) return;
+    abortRef.current = null;
+    setBusy('idle');
+    setProgress(null);
+  }, []);
   /** 永続化の要求は、この画面で 1 回まで（permission の連続要求をしない）。 */
   const persistRequestedRef = useRef(false);
   /** Benchmark Profile（STANDARD / MOBILE_FEASIBILITY）。profile が違う run は比べない。 */
@@ -340,6 +350,13 @@ export default function AiModelLabPage({
       if (!event.persisted) return;
       // pagehide でモデルを解放したので、画面の「読み込み済み」も外す（残すと Run が読み込みを飛ばして not-loaded になる）。
       setLoaded(null);
+      // pagehide で中止した操作が中止に応じずに残っていても（読み込みにはタイムアウトが無い）、画面を操作できる状態に戻す。
+      // 古い操作はもう現在の操作ではないので、あとで終わっても busy などを書き換えない（endOperation）。
+      abortRef.current?.abort(LIFECYCLE_ABORT_REASON);
+      abortRef.current = null;
+      setBusy('idle');
+      setProgress(null);
+      setConfirmStage(null);
       setStorageRevision((value) => value + 1);
       const stale = readCheckpoint();
       if (stale === null) return;
@@ -564,6 +581,8 @@ export default function AiModelLabPage({
             setProgress({ fraction, text });
           },
         });
+        // bfcache からの復帰などでこの操作が打ち切られていたら、画面の状態を書き換えない。
+        if (abortRef.current !== controller) return;
         setLoaded({ candidateId: candidate.id, runtimeId: runtime.id, load: record });
         setCacheState((state) => ({ ...state, [storageKey]: 'cached' }));
         const size = await runtime.cachedSizeBytes(candidate).catch(() => null);
@@ -584,13 +603,11 @@ export default function AiModelLabPage({
         });
       } finally {
         finishCheckpoint(checkpoint, controller.signal);
-        setBusy('idle');
-        setProgress(null);
-        abortRef.current = null;
+        endOperation(controller);
         setStorageRevision((value) => value + 1);
       }
     },
-    [runtime, runtimes, candidate, loaded, storageKey, storageStatus, probeStorage, requestPersist, profile, reportLoadFailure, checkpointBase],
+    [runtime, runtimes, candidate, loaded, storageKey, storageStatus, probeStorage, requestPersist, profile, reportLoadFailure, checkpointBase, endOperation],
   );
 
   const unload = useCallback(async () => {
@@ -692,11 +709,9 @@ export default function AiModelLabPage({
     } finally {
       // 正常終了・中止・捕まえた失敗のどれでも消す（残るのは Lab を離れた・ページが途中で終わったときだけ）。
       finishCheckpoint(checkpoint, controller.signal);
-      setBusy('idle');
-      setProgress(null);
-      abortRef.current = null;
+      endOperation(controller);
     }
-  }, [runtime, dataset, scope, candidate, loaded, profile, checkpointBase, executeRun]);
+  }, [runtime, dataset, scope, candidate, loaded, profile, checkpointBase, executeRun, endOperation]);
 
   const recordStage = useCallback(
     (record: StageRecord) => {
@@ -777,14 +792,12 @@ export default function AiModelLabPage({
         }
       } finally {
         finishCheckpoint(checkpoint, controller.signal);
-        setLoaded(null);
-        setBusy('idle');
-        setProgress(null);
-        abortRef.current = null;
+        if (abortRef.current === controller) setLoaded(null);
+        endOperation(controller);
         setStorageRevision((value) => value + 1);
       }
     },
-    [runtime, dataset, candidate, profile, runtimeBackend, checkpointBase, releaseLoaded, executeRun, recordStage, reportLoadFailure],
+    [runtime, dataset, candidate, profile, runtimeBackend, checkpointBase, releaseLoaded, executeRun, recordStage, reportLoadFailure, endOperation],
   );
 
   /** 保存済みの run を、モデルを再実行せずに現在の検証で評価し直す（元の run は残す）。 */
