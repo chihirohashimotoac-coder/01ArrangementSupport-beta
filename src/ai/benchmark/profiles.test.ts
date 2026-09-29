@@ -419,6 +419,16 @@ describe('WebLLM Runtime のメモリの扱い（偽のモジュール）', () =
     expect(events).toEqual(['reload', 'unload:start', 'unload:end', 'reload']);
   });
 
+  it('すでに中止された signal では reload を始めない', async () => {
+    const fake = fakeModule(new Set(['fixture-model-id']));
+    const runtime = createWebLlmRuntime({ loadModule: async () => fake.module, storage, now: () => 0 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(runtime.load(CANDIDATE, { allowDownload: false, signal: controller.signal, contextWindowSize: 2048 }))
+      .rejects.toMatchObject({ code: 'aborted' });
+    expect(fake.calls.filter((call) => call.startsWith('reload'))).toEqual([]);
+  });
+
   it('取得が途中で止まったモデルの残り（partial）を、保存領域を作らずに見分ける', async () => {
     const record = (url: string, nbytes: number) => JSON.stringify({ url, nbytes });
     const partial = fakeStorage({

@@ -83,6 +83,7 @@ import { createTemplateRuntime } from '../ai/benchmark/runtimes/templateRuntime'
 import { createWebLlmRuntime } from '../ai/benchmark/runtimes/webllmRuntime';
 import {
   BENCHMARK_CATEGORIES,
+  BenchmarkRuntimeError,
   type BenchmarkCandidate,
   type BenchmarkDataset,
   type BenchmarkRun,
@@ -604,6 +605,8 @@ export default function AiModelLabPage({
           setFootprint((state) => ({ ...state, [storageKey]: estimatedDownloadFootprint(before, after) }));
         }
       } catch (error) {
+        // bfcache からの復帰などで打ち切った古い読み込みの失敗（中止）は、画面に出さない。
+        if (abortRef.current !== controller) return;
         // 失敗した Runtime は、前に読み込んでいたモデルも外れていることがある（WebLLM の reload 失敗）。
         // 画面の「読み込み済み」を残すと、Run が読み込みを飛ばして全件 not-loaded になるので解除する。
         if (loaded?.runtimeId === runtime.id) setLoaded(null);
@@ -768,6 +771,8 @@ export default function AiModelLabPage({
       try {
         checkpoint.update('loading');
         await releaseLoaded();
+        // 解放を待つ間に中止されたら、読み込み（メモリを多く使う）を始めない。
+        if (controller.signal.aborted) throw new BenchmarkRuntimeError('aborted', '読み込みの前に中止しました。');
         setProgress({ fraction: 0, text: `${FEASIBILITY_STAGE_LABEL[stage]}: 読み込み中` });
         const loadRecord = await runtime.load(candidate, {
           allowDownload: false,

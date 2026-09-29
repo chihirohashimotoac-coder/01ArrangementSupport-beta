@@ -570,6 +570,50 @@ describe('モデルの解放（メモリを残さない）', () => {
     expect(created[1].loadedCandidateId()).toBe('fixture-model');
   });
 
+  it('bfcache で打ち切った古い読み込みがあとで失敗（中止）しても、失敗の表示を出さない', async () => {
+    const user = userEvent.setup();
+    const mock = cachedMock();
+    let fail: (() => void) | null = null;
+    vi.spyOn(mock, 'load').mockImplementationOnce(
+      () => new Promise((_, reject) => (fail = () => reject(new BenchmarkRuntimeError('aborted', '読み込みを中止しました。')))),
+    );
+    renderLab(mock);
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(fail).not.toBeNull());
+    window.dispatchEvent(new Event('pagehide'));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await waitFor(() => expect(screen.getByTestId('lab-model-select')).toBeEnabled());
+    fail!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.queryByTestId('lab-failure')).toBeNull();
+  });
+
+  it('段階の開始時の解放を待つ間に中止したら、モデルを読み込み直さない', async () => {
+    const user = userEvent.setup();
+    const mock = cachedMock();
+    renderLab(mock);
+    await chooseMobile(user);
+    // MOBILE_FEASIBILITY のまま手動で読み込んでおく。
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(mock.residentModels()).toBe(1));
+    const loads = mock.log.filter((entry) => entry.startsWith('load:')).length;
+    const realUnload = mock.unload.bind(mock);
+    let finish: (() => void) | null = null;
+    vi.spyOn(mock, 'unload').mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => (finish = resolve));
+      await realUnload();
+    });
+    await user.click(screen.getByTestId('lab-stage-run-LOAD_ONLY'));
+    await waitFor(() => expect(finish).not.toBeNull());
+    await user.click(screen.getByTestId('lab-stage-abort'));
+    finish!();
+    await waitFor(() => expect(screen.getByTestId('lab-stage-last-LOAD_ONLY')).toHaveTextContent('前回: 中止'));
+    expect(mock.log.filter((entry) => entry.startsWith('load:')).length).toBe(loads);
+    expect(mock.residentModels()).toBe(0);
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();

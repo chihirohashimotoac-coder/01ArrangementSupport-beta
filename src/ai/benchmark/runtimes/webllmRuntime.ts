@@ -244,6 +244,9 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
     loadOptions.signal.addEventListener('abort', abort);
     // 前の解放（profile・候補の切り替え）が終わるまで待つ。
     if (pendingUnload !== null) await pendingUnload;
+    // 待つ間に（または呼ぶ前に）中止されていたら reload を始めない（abort の listener は reload の直前に付けるため、
+    // すでに中止された signal では発火しない）。
+    if (loadOptions.signal.aborted) throw new BenchmarkRuntimeError('aborted', '読み込みを中止しました。');
     const started = now();
     try {
       // context window は WebLLM の公式の上書き（chatOpts）で渡す。null なら何も渡さず、既定（prebuilt の設定）のまま。
