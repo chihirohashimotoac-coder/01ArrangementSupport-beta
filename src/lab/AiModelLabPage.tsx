@@ -473,13 +473,17 @@ export default function AiModelLabPage({
    */
   const releaseWhileBusy = useCallback(async () => {
     if (!loaded) return;
+    // 解放も 1 つの操作として扱う（bfcache から戻ったときに、終わっていない解放を持つ Runtime を作り直せるように。
+    // 解放そのものは中止できないが、打ち切られたあとで終わっても busy を書き換えない）。
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusy('releasing');
     try {
       await releaseLoaded();
     } finally {
-      setBusy('idle');
+      endOperation(controller);
     }
-  }, [loaded, releaseLoaded]);
+  }, [loaded, releaseLoaded, endOperation]);
 
   /** 候補を切り替える。前の候補のモデルは解放する。 */
   const changeCandidate = useCallback((next: string) => {

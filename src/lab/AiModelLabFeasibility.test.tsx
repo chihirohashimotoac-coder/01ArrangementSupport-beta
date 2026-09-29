@@ -614,6 +614,64 @@ describe('モデルの解放（メモリを残さない）', () => {
     expect(mock.residentModels()).toBe(0);
   });
 
+  it('profile 切り替えの解放の途中で bfcache に入って戻ったら、Runtime を作り直し、古い解放が終わっても busy を書き換えない', async () => {
+    const user = userEvent.setup();
+    const created: MockRuntime[] = [];
+    let finishUnload: (() => void) | null = null;
+    const factory = (_backend: unknown, epoch: number) => {
+      created[epoch] ??= (() => {
+        const mock = cachedMock({ id: `mock-${epoch}` });
+        if (epoch === 0) {
+          const realUnload = mock.unload.bind(mock);
+          vi.spyOn(mock, 'unload').mockImplementation(async () => {
+            if (mock.residentModels() === 0) return;
+            await new Promise<void>((resolve) => (finishUnload = resolve));
+            await realUnload();
+          });
+        }
+        return mock;
+      })();
+      return [createTemplateRuntime(() => 0), created[epoch]];
+    };
+    render(
+      <AiModelLabPage
+        onBack={() => {}}
+        runtimes={factory}
+        candidates={[MEASURED, BASELINE_CANDIDATE]}
+        buildDataset={buildDataset}
+        probe={async () => DEVICE}
+        storageSupport={ALL_STORAGE}
+        probeStorage={async () => STATUS}
+        requestPersist={async () => false}
+      />,
+    );
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(created[0].residentModels()).toBe(1));
+    await user.selectOptions(screen.getByTestId('lab-profile-select'), 'MOBILE_FEASIBILITY');
+    await waitFor(() => expect(finishUnload).not.toBeNull());
+    expect(screen.getByTestId('lab-profile-select')).toBeDisabled();
+    window.dispatchEvent(new Event('pagehide'));
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    await waitFor(() => expect(created[1]).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId('lab-stage-run-LOAD_ONLY')).toBeEnabled());
+    // 新しい Runtime で段階を始め、その途中で古い解放が終わっても、busy を書き換えない。
+    const loadGate: { release: (() => void) | null } = { release: null };
+    const realLoad = created[1].load.bind(created[1]);
+    vi.spyOn(created[1], 'load').mockImplementationOnce(async (candidate, options) => {
+      await new Promise<void>((resolve) => (loadGate.release = resolve));
+      return realLoad(candidate, options);
+    });
+    await user.click(screen.getByTestId('lab-stage-run-LOAD_ONLY'));
+    await waitFor(() => expect(loadGate.release).not.toBeNull());
+    finishUnload!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.getByTestId('lab-profile-select')).toBeDisabled();
+    loadGate.release!();
+    await waitFor(() => expect(screen.getByTestId('lab-stage-last-LOAD_ONLY')).toHaveTextContent('前回: 成功'));
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();
