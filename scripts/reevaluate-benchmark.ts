@@ -39,8 +39,16 @@ const reevaluated: BenchmarkRun[] = [];
 const percent = (value: number | null) => (value === null ? '—' : `${(value * 100).toFixed(1)}%`);
 
 for (const exported of parsed.runs) {
-  // export は run に summary と profile を足している。summary は計算し直すので外す。
-  const { summary: _summary, ...run } = exported as BenchmarkRun & { summary?: unknown };
+  // export は run に summary と profile（recorded 付き）を足している。summary は計算し直すので外し、
+  // profile を記録していなかった古い run（recorded: false）は、元どおり profile の無い run に戻す。
+  const { summary: _summary, profile: exportedProfile, ...rest } = exported as BenchmarkRun & {
+    summary?: unknown;
+    profile?: BenchmarkRun['profile'] & { recorded?: boolean };
+  };
+  const { recorded, ...profile } = exportedProfile ?? { recorded: false };
+  const run: BenchmarkRun = recorded === false || exportedProfile === undefined
+    ? rest
+    : { ...rest, profile: profile as NonNullable<BenchmarkRun['profile']> };
   const result = reevaluateRun(run, dataset, reevaluatedAt);
   if (!result.ok) {
     console.log(`SKIP ${run.runId}: ${result.reasonJa}`);
