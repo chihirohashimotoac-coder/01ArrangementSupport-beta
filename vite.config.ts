@@ -90,7 +90,8 @@ export default defineConfig({
          * precache しない。一般の利用者が使わない数 MB のコードを、全員の端末へ保存しないため。
          * Lab を開いたときにだけネットワークから読み込む。
          */
-        globIgnores: [`**/${AI_RUNTIME_CHUNK}-*.js`, '**/AiModelLabPage-*.{js,css}'],
+        // labTestRuntime は E2E 用の Mock Runtime（`?ai-lab-test-runtime=…` のときだけ Lab が読む）。
+        globIgnores: [`**/${AI_RUNTIME_CHUNK}-*.js`, '**/AiModelLabPage-*.{js,css}', '**/labTestRuntime-*.js'],
         cleanupOutdatedCaches: true,
         /*
          * clientsClaim は true のまま。これは「初回にインストールされた

@@ -124,7 +124,7 @@ test('設定画面に Lab の入口があり、開くと Lab だけを遅延読�
   expect(loaded(traffic, WEBLLM_CHUNK)).toBe(false);
 
   // モデルなしの baseline で Benchmark の流れを確かめる（クイック 10 件）。
-  await page.locator('[data-testid="lab-benchmark"] select').first().selectOption('quick');
+  await page.getByTestId('lab-scope').selectOption('quick');
   await page.getByTestId('lab-run').click();
   await expect(page.getByTestId('metric-validation')).toContainText('10 / 10', { timeout: 30_000 });
   await expect(page.getByTestId('metric-contradiction')).toContainText('0 / 10');

@@ -135,6 +135,16 @@ export interface AiModelLabPageProps {
 const defaultRuntimes = (backend: ModelStorageBackend | null): readonly BenchmarkRuntime[] =>
   backend === null ? [createTemplateRuntime()] : [createTemplateRuntime(), createWebLlmRuntime({ storageBackend: backend })];
 
+/**
+ * E2E 用の Test Runtime（`?ai-lab-test-runtime=mock` / `mock-hang`）。実モデルを使わずに段階・checkpoint の流れを確かめる。
+ * 指定が無ければ null（通常の Runtime）。Test Runtime のコードは指定したときだけ動的 import する（`labTestRuntime.ts`）。
+ */
+function testRuntimeModeFromLocation(): 'mock' | 'mock-hang' | null {
+  if (typeof window === 'undefined') return null;
+  const mode = new URLSearchParams(window.location.search).get('ai-lab-test-runtime');
+  return mode === 'mock' || mode === 'mock-hang' ? mode : null;
+}
+
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
 
@@ -219,10 +229,25 @@ export default function AiModelLabPage({
   const storageSupport = useMemo(() => injectedStorageSupport ?? detectModelStorageSupport(), [injectedStorageSupport]);
   const storageChoice = useMemo(() => chooseModelStorageBackend(storageSupport), [storageSupport]);
   const [storageBackend, setStorageBackend] = useState<ModelStorageBackend | null>(storageChoice.backend);
+  const testRuntimeMode = useMemo(() => (injectedRuntimes ? null : testRuntimeModeFromLocation()), [injectedRuntimes]);
+  const [testRuntimes, setTestRuntimes] = useState<readonly BenchmarkRuntime[] | null>(null);
+  useEffect(() => {
+    if (testRuntimeMode === null) return;
+    let active = true;
+    void import('./labTestRuntime').then((module) => {
+      if (active) setTestRuntimes(module.createLabTestRuntimes(testRuntimeMode, candidates));
+    });
+    return () => {
+      active = false;
+    };
+  }, [testRuntimeMode, candidates]);
+  const templateOnly = useMemo(() => [createTemplateRuntime()], []);
   const runtimes = useMemo(() => {
     if (typeof injectedRuntimes === 'function') return injectedRuntimes(storageBackend);
-    return injectedRuntimes ?? defaultRuntimes(storageBackend);
-  }, [injectedRuntimes, storageBackend]);
+    if (injectedRuntimes) return injectedRuntimes;
+    if (testRuntimeMode !== null) return testRuntimes ?? templateOnly;
+    return defaultRuntimes(storageBackend);
+  }, [injectedRuntimes, storageBackend, testRuntimeMode, testRuntimes, templateOnly]);
   const [dataset, setDataset] = useState<BenchmarkDataset | null>(null);
   const [device, setDevice] = useState<DeviceReport | null>(null);
   const [candidateId, setCandidateId] = useState(candidates[0]?.id ?? BASELINE_CANDIDATE_ID);
@@ -774,6 +799,11 @@ export default function AiModelLabPage({
           <li>モデルを使うと、端末へ大容量のデータ（数百 MB〜数 GB）をダウンロードします。ダウンロードは確認のあとだけ行います。</li>
           <li>どのモデルを正式に採用するかは、まだ決まっていません。</li>
         </ul>
+        {testRuntimeMode !== null && (
+          <p className="lab__hint lab__warning" data-testid="lab-test-runtime">
+            TEST RUNTIME（{testRuntimeMode}）: E2E 用の Mock Runtime です。実モデル・WebLLM・WebGPU は使いません。
+          </p>
+        )}
       </header>
 
       {message && (
@@ -1263,7 +1293,12 @@ export default function AiModelLabPage({
           {!profile.staged && (
             <label className="lab__field">
               <span>ケース</span>
-              <select value={scope} onChange={(event) => setScope(event.target.value as 'all' | 'quick')} disabled={labBusy}>
+              <select
+                data-testid="lab-scope"
+                value={scope}
+                onChange={(event) => setScope(event.target.value as 'all' | 'quick')}
+                disabled={labBusy}
+              >
                 <option value="all">すべて</option>
                 <option value="quick">クイック（各カテゴリ 2 件）</option>
               </select>
