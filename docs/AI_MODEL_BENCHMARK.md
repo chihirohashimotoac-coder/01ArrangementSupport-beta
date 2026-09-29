@@ -493,6 +493,7 @@ iPhone の WebKit がタブを終了するメモリの上限値は、公開さ�
 
 - MLCEngine は Runtime につき 1 つだけ作る（`engine ??=`）。WebLLM の `reload` は前のモデルを解放してから読み込む
 - 読み込みを同時に 2 つ走らせない（`runtime-unavailable`）
+- 解放（unload）の途中で次の読み込みを頼まれたら、解放が終わってから `reload` する。profile・候補の切り替えでは、解放が終わるまで Lab を busy にする（段階を始めさせない）
 - 読み込み済みのモデルと context window が違えば読み込み直し、同じなら `already-loaded`
 - 候補の切り替え・profile の切り替え・保存方式の切り替え・Lab を離れる（unmount）・`pagehide` で解放する。MOBILE_FEASIBILITY の段階は終わったら解放する
 - 検査: `src/ai/benchmark/profiles.test.ts`（偽の WebLLM モジュールで MLCEngine の生成数・chatOpts・appConfig の同一性・同時読み込み）、
@@ -546,6 +547,7 @@ iPhone ではメモリが足りないとタブごと終了し、try / catch で�
   JSON で保存できます。その段階は「正常終了しなかった（incomplete）」として段階の記録に残り、次の段階を推奨しません
 - これは **「前回の run が正常終了しなかった証拠」** で、ブラウザ・タブの crash の証拠ではありません（再読み込み・タブを閉じた場合も残ります）。原因は断定しません
 - localStorage への書き込みがタブの終了の前に確定しているかは、ブラウザの実装によります（best-effort）
+- back-forward cache から戻った（`pageshow` の `persisted`）ときは、同じ画面のまま再開するので、残した checkpoint を読み直して表示します
 
 ---
 
@@ -557,7 +559,7 @@ iPhone ではメモリが足りないとタブごと終了し、try / catch で�
 - finish_reason は PR #5 以前の記録に無いので、出力の上限は出力トークン数 ≥ max_tokens − 8 で安全側に判断します
 - export した JSON は `npm run reevaluate:benchmark -- <export.json> [出力.json]` で再評価できます（元のファイルは変更せず、`<入力>.reeval-v2.json` へ書く）
 - 再評価できないとき: データセットが一致しない・すでに validator v2・rawText が残っていない（理由を表示します）
-- Lab の保存は直近 5 件です。再評価した run を足すと古い run が押し出されることがあるので、先に Export JSON で保存してください
+- Lab の保存は直近 5 件です。再評価した run を足すときは**元の run を残し**、代わりに元の run 以外でいちばん古い run を外します（念のため先に Export JSON で保存してください）
 
 ---
 

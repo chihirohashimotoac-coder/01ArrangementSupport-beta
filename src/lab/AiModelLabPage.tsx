@@ -108,7 +108,7 @@ import StorageDiagnosticsSection, { type StorageDiagnosticsSectionProps } from '
 import './AiModelLabPage.css';
 
 type CacheState = 'unknown' | 'checking' | 'cached' | 'not-cached' | 'partial';
-type Busy = 'idle' | 'downloading' | 'loading' | 'running' | 'deleting' | 'stage';
+type Busy = 'idle' | 'downloading' | 'loading' | 'running' | 'deleting' | 'stage' | 'releasing';
 /** 方式ごとの保存状況。`unavailable` はこのブラウザにその方式の API が無い。 */
 type Presence = boolean | null | 'unavailable';
 
@@ -333,6 +333,21 @@ export default function AiModelLabPage({
     return () => window.removeEventListener('pagehide', release);
   }, [runtimes]);
 
+  // back-forward cache から戻ったときは、同じ画面のまま再開するので state の初期化（checkpoint の読み込み）が走らない。
+  // pagehide で残した checkpoint を読み直し、「正常終了しなかった」を示す。
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      const stale = readCheckpoint();
+      if (stale === null) return;
+      setStaleCheckpoint(stale);
+      const record = stageRecordFromCheckpoint(stale);
+      if (record) setStageRecords(appendStageRecord(record));
+    };
+    window.addEventListener('pageshow', restore);
+    return () => window.removeEventListener('pageshow', restore);
+  }, []);
+
   const candidate = candidates.find((item) => item.id === candidateId) ?? candidates[0];
   const runtime = runtimes.find((item) => item.supports(candidate)) ?? null;
   const runtimeBackend = runtime?.modelStorage?.backend ?? null;
@@ -420,23 +435,36 @@ export default function AiModelLabPage({
     await runtimes.find((item) => item.id === current.runtimeId)?.unload().catch(() => {});
   }, [loaded, runtimes]);
 
+  /**
+   * 読み込んでいるモデルを解放し終わるまで Lab を busy にする（解放の途中で次の読み込み・段階を始めさせない）。
+   */
+  const releaseWhileBusy = useCallback(async () => {
+    if (!loaded) return;
+    setBusy('releasing');
+    try {
+      await releaseLoaded();
+    } finally {
+      setBusy('idle');
+    }
+  }, [loaded, releaseLoaded]);
+
   /** 候補を切り替える。前の候補のモデルは解放する。 */
   const changeCandidate = useCallback((next: string) => {
-    void releaseLoaded();
+    void releaseWhileBusy();
     setCandidateId(next);
     setConfirmDownload(false);
     setConfirmDelete(false);
     setConfirmStage(null);
-  }, [releaseLoaded]);
+  }, [releaseWhileBusy]);
 
   /** profile を切り替える。context window が変わるので、読み込んでいるモデルは解放する。 */
   const changeProfile = useCallback((next: string) => {
     if (!profileById(next)) return;
-    void releaseLoaded();
+    void releaseWhileBusy();
     setProfileId(next);
     saveProfileId(next);
     setConfirmStage(null);
-  }, [releaseLoaded]);
+  }, [releaseWhileBusy]);
 
   /** 保存方式を変える。Runtime を作り直し（前の Runtime は解放）、読み込み済みの状態を外す。取得はしない。 */
   const changeStorageBackend = useCallback((next: ModelStorageBackend) => {
@@ -767,7 +795,7 @@ export default function AiModelLabPage({
         setMessage(`再評価できませんでした: ${result.reasonJa}`);
         return;
       }
-      const saved = saveRun(result.run);
+      const saved = saveRun(result.run, { keepRunId: target.runId });
       setRuns(saved.runs);
       setSelectedRunId(result.run.runId);
       setMessage(
@@ -1427,7 +1455,7 @@ function ResultsSection({ runs, selectedRun, onSelect, onDelete, ratings, onRate
       <h2>RESULTS</h2>
       <label className="lab__field">
         <span>Run</span>
-        <select value={selectedRun.runId} onChange={(event) => onSelect(event.target.value)}>
+        <select data-testid="lab-run-select" value={selectedRun.runId} onChange={(event) => onSelect(event.target.value)}>
           {runs.map((item) => (
             <option key={item.runId} value={item.runId}>
               [{runProfileOf(item).id}] {item.candidateId} / thinking {item.settings.thinking} / {item.results.length} 件 /{' '}

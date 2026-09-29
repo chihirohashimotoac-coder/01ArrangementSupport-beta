@@ -344,6 +344,41 @@ describe('WebLLM Runtime のメモリの扱い（偽のモジュール）', () =
     expect(fake.engines()).toBe(1);
   });
 
+  it('解放（unload）の途中で読み込みを頼まれても、解放が終わってから reload する（GPU の解放と読み込みを重ねない）', async () => {
+    const events: string[] = [];
+    let finishUnload: (() => void) | null = null;
+    const module: WebLlmModuleLike = {
+      prebuiltAppConfig: { model_list: [{ model: 'https://example.test/fixture', model_id: 'fixture-model-id', model_lib: 'https://example.test/lib.wasm' }] },
+      MLCEngine: class {
+        chat = { completions: { create: async () => (async function* () {})() } };
+        async reload() {
+          events.push('reload');
+        }
+        async unload() {
+          events.push('unload:start');
+          await new Promise<void>((resolve) => (finishUnload = resolve));
+          events.push('unload:end');
+        }
+        async resetChat() {}
+        interruptGenerate() {}
+        setInitProgressCallback() {}
+      },
+      hasModelInCache: async () => true,
+      deleteModelAllInfoInCache: async () => {},
+    };
+    const runtime = createWebLlmRuntime({ loadModule: async () => module, storage, now: () => 0 });
+    const signal = new AbortController().signal;
+    await runtime.load(CANDIDATE, { allowDownload: false, signal });
+    const unloading = runtime.unload();
+    const loading = runtime.load(CANDIDATE, { allowDownload: false, signal, contextWindowSize: 2048 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toEqual(['reload', 'unload:start']);
+    finishUnload!();
+    await unloading;
+    await loading;
+    expect(events).toEqual(['reload', 'unload:start', 'unload:end', 'reload']);
+  });
+
   it('取得が途中で止まったモデルの残り（partial）を、保存領域を作らずに見分ける', async () => {
     const record = (url: string, nbytes: number) => JSON.stringify({ url, nbytes });
     const partial = fakeStorage({

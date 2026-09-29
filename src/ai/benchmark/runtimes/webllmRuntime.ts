@@ -143,6 +143,17 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
   let loadedContextWindowSize: number | null = null;
   /** 読み込みの最中か（同時に 2 つ読み込まない）。 */
   let loading = false;
+  /** 進行中の解放。次の読み込みはこれが終わってから始める（GPU の解放と読み込みを重ねない）。 */
+  let pendingUnload: Promise<void> | null = null;
+  const releaseEngine = async (): Promise<void> => {
+    if (engine === null) return;
+    const current = engine.unload();
+    const tracked = current.catch(() => {}).finally(() => {
+      if (pendingUnload === tracked) pendingUnload = null;
+    });
+    pendingUnload = tracked;
+    await current;
+  };
   const loadedThisSession = new Set<string>();
 
   const module = async (): Promise<WebLlmModuleLike> => {
@@ -231,6 +242,8 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
       void current.unload();
     };
     loadOptions.signal.addEventListener('abort', abort);
+    // 前の解放（profile・候補の切り替え）が終わるまで待つ。
+    if (pendingUnload !== null) await pendingUnload;
     const started = now();
     try {
       // context window は WebLLM の公式の上書き（chatOpts）で渡す。null なら何も渡さず、既定（prebuilt の設定）のまま。
@@ -352,9 +365,9 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
     },
 
     async unload() {
-      if (engine !== null) await engine.unload();
       loadedModelId = null;
       loadedContextWindowSize = null;
+      await releaseEngine();
     },
 
     async deleteCache(candidate) {
@@ -362,7 +375,7 @@ export function createWebLlmRuntime(options: WebLlmRuntimeOptions = {}): WebLlmR
       const webllm = await module();
       const appConfig = configFor(webllm, backend);
       if (engine !== null && loadedModelId === modelId) {
-        await engine.unload();
+        await releaseEngine();
         loadedModelId = null;
         loadedContextWindowSize = null;
       }

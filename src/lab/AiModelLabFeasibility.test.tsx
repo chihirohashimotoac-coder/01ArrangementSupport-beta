@@ -25,8 +25,14 @@ import {
 import { buildDecisionEvidence } from '../ai/evidence';
 import { suggestFor } from '../engine/recovery/suggest';
 import AiModelLabPage from './AiModelLabPage';
-import { BENCHMARK_CHECKPOINT_KEY, FEASIBILITY_RECORDS_KEY, readCheckpoint, type BenchmarkCheckpoint } from './benchmarkCheckpoint';
-import { BENCHMARK_PROFILE_KEY, BENCHMARK_RUNS_KEY } from './labStorage';
+import {
+  BENCHMARK_CHECKPOINT_KEY,
+  FEASIBILITY_RECORDS_KEY,
+  readCheckpoint,
+  startCheckpoint,
+  type BenchmarkCheckpoint,
+} from './benchmarkCheckpoint';
+import { BENCHMARK_PROFILE_KEY, BENCHMARK_RUNS_KEY, MAX_STORED_RUNS } from './labStorage';
 
 /** 各カテゴリ 3 件（計 15 件）。クイックは各カテゴリ 2 件で 10 件。 */
 const buildDataset = () =>
@@ -288,6 +294,19 @@ describe('MOBILE_FEASIBILITY の段階', () => {
   });
 });
 
+function startCheckpointForTest() {
+  startCheckpoint({
+    candidateId: 'fixture-model',
+    candidateLabel: 'Fixture Model',
+    runtimeModelId: 'fixture-model-id',
+    profileId: 'MOBILE_FEASIBILITY',
+    profileVersion: 1,
+    contextWindowSize: 2048,
+    stage: 'QUICK_10',
+    storageBackend: 'opfs',
+  }).update('generating', { runId: 'r', caseIndex: 1, caseTotal: 10, caseId: 'CHECKOUT-1' });
+}
+
 describe('Lab を離れた・ページを閉じたことによる中止では checkpoint を残す', () => {
   function hangingMock() {
     let settled = 0;
@@ -327,6 +346,21 @@ describe('Lab を離れた・ページを閉じたことによる中止では ch
     renderLab(cachedMock());
     expect(await screen.findByTestId('lab-stale-checkpoint')).toHaveTextContent('前回のBenchmarkは正常終了しませんでした。');
     await waitFor(() => expect(screen.getByTestId('lab-stage-last-ONE_CASE')).toHaveTextContent('正常終了しなかった'));
+  });
+
+  it('back-forward cache から戻ったとき（pageshow・persisted）、残した checkpoint を読み直して示す', async () => {
+    renderLab(cachedMock());
+    await screen.findByTestId('lab-profile');
+    expect(screen.queryByTestId('lab-stale-checkpoint')).toBeNull();
+    // pagehide で中止した実行の checkpoint が残っている状態で、同じ画面へ戻る。
+    startCheckpointForTest();
+    const persisted = new Event('pageshow');
+    Object.defineProperty(persisted, 'persisted', { value: true });
+    window.dispatchEvent(persisted);
+    expect(await screen.findByTestId('lab-stale-checkpoint')).toHaveTextContent('前回のBenchmarkは正常終了しませんでした。');
+    expect(screen.getByTestId('checkpoint-case')).toHaveTextContent('2 / 10');
+    // 通常の pageshow（persisted でない）では何もしない。
+    window.localStorage.removeItem(BENCHMARK_CHECKPOINT_KEY);
   });
 
   it('pagehide でも checkpoint を残す', async () => {
@@ -410,6 +444,27 @@ describe('モデルの解放（メモリを残さない）', () => {
     await waitFor(() => expect(mock.residentModels()).toBe(0));
   });
 
+  it('profile を切り替えたら、解放が終わるまで段階を始められない（解放と読み込みを重ねない）', async () => {
+    const user = userEvent.setup();
+    const mock = cachedMock();
+    const realUnload = mock.unload.bind(mock);
+    let finish: (() => void) | null = null;
+    vi.spyOn(mock, 'unload').mockImplementation(async () => {
+      await new Promise<void>((resolve) => (finish = resolve));
+      await realUnload();
+    });
+    renderLab(mock);
+    await user.click(await screen.findByTestId('lab-load'));
+    await waitFor(() => expect(mock.residentModels()).toBe(1));
+    await user.selectOptions(screen.getByTestId('lab-profile-select'), 'MOBILE_FEASIBILITY');
+    expect(screen.getByTestId('lab-stage-run-LOAD_ONLY')).toBeDisabled();
+    expect(screen.getByTestId('lab-profile-select')).toBeDisabled();
+    await waitFor(() => expect(finish).not.toBeNull());
+    finish!();
+    await waitFor(() => expect(screen.getByTestId('lab-stage-run-LOAD_ONLY')).toBeEnabled());
+    expect(mock.residentModels()).toBe(0);
+  });
+
   it('pagehide でも解放する', async () => {
     const user = userEvent.setup();
     const mock = cachedMock();
@@ -458,5 +513,27 @@ describe('保存済み run の再評価', () => {
     expect(runs[0].reevaluation?.originalRunId).toBe(original.runId);
     // 再評価した run はもう一度は再評価しない。
     expect(screen.getByTestId('lab-reevaluate')).toBeDisabled();
+  });
+
+  it('保存が上限（5 件）のとき、いちばん古い run を再評価しても元の run は押し出さない', async () => {
+    const user = userEvent.setup();
+    const original = await legacyRun();
+    const newer = Array.from({ length: MAX_STORED_RUNS - 1 }, (_, index) => ({
+      ...original,
+      runId: `newer-${index}`,
+      startedAt: `2026-09-29T00:0${index}:00.000Z`,
+    }));
+    window.localStorage.setItem(BENCHMARK_RUNS_KEY, JSON.stringify({ version: 1, runs: [...newer, original] }));
+    renderLab(cachedMock());
+    await user.selectOptions(await screen.findByTestId('lab-run-select'), original.runId);
+    await waitFor(() => expect(screen.getByTestId('lab-reevaluate')).toBeEnabled());
+    await user.click(screen.getByTestId('lab-reevaluate'));
+    await waitFor(() => expect(screen.getByTestId('result-validator')).toHaveTextContent(`元の run: ${original.runId}`));
+    const runs = storedRuns();
+    expect(runs).toHaveLength(MAX_STORED_RUNS);
+    expect(runs.map((run) => run.runId)).toContain(original.runId);
+    expect(runs[0].reevaluation?.originalRunId).toBe(original.runId);
+    // 代わりに、元の run 以外でいちばん古いものが外れる。
+    expect(runs.map((run) => run.runId)).not.toContain(`newer-${MAX_STORED_RUNS - 2}`);
   });
 });
