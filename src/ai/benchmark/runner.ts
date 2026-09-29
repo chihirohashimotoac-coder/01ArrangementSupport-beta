@@ -224,6 +224,12 @@ export async function runBenchmark(input: RunBenchmarkInput): Promise<BenchmarkR
     }
     results.push(result);
     input.onCaseComplete?.(result, index, selected.length);
+    // 中止を頼まれたあとで生成が普通に返っても（Runtime がすぐ止まらないことがある）、中止として終える
+    // （最後のケースで中止した run を、中止されなかった run にしない）。
+    if (input.signal?.aborted) {
+      aborted = true;
+      break;
+    }
   }
 
   return {

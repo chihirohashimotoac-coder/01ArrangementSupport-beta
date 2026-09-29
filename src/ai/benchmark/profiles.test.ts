@@ -231,6 +231,25 @@ describe('MOBILE_FEASIBILITY の段階制', () => {
     expect(stageRecordFromRun('ONE_CASE', quality, at, 1).status).toBe('success');
   });
 
+  it('最後のケースの生成中に中止し、Runtime がそのまま返しても、run は中止として終わる（段階を成功にしない）', async () => {
+    const controller = new AbortController();
+    const runtime = createMockRuntime({
+      clock: createFakeClock(),
+      cachedCandidateIds: [CANDIDATE.id],
+      respond: (request) => {
+        // 生成の途中で中止を頼まれたが、Runtime は止まらずに返す。
+        controller.abort();
+        return faithfulResponse(request);
+      },
+    });
+    await runtime.load(CANDIDATE, { allowDownload: false, signal: new AbortController().signal });
+    const caseIds = stageCaseIds('ONE_CASE', dataset());
+    const run = await runBenchmark({ runtime, candidate: CANDIDATE, dataset: dataset(), caseIds, signal: controller.signal, clockIso: ISO });
+    expect(run.aborted).toBe(true);
+    expect(run.results).toHaveLength(1);
+    expect(stageRecordFromRun('ONE_CASE', run, at, caseIds.length).status).toBe('aborted');
+  });
+
   it('中止した段階は、合計を予定のケース数で記録する（3 / 3 件ではなく 3 / 10 件）', async () => {
     const controller = new AbortController();
     let generated = 0;
