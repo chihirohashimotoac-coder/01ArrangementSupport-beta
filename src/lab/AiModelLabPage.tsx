@@ -742,15 +742,12 @@ export default function AiModelLabPage({
           recordStage(stageRecordFromLoad(loadRecord, new Date().toISOString()));
           setMessage(`LOAD ONLY: 読み込みに成功しました（${LOAD_KIND_LABEL[loadRecord.kind]}・${formatMs(loadRecord.loadTimeMs)}）。すぐに解放しました。`);
         } else {
-          const result = await executeRun({
-            caseIds: stageCaseIds(stage, dataset),
-            loadRecord,
-            stage,
-            checkpoint,
-            signal: controller.signal,
-          });
+          const caseIds = stageCaseIds(stage, dataset);
+          const result = await executeRun({ caseIds, loadRecord, stage, checkpoint, signal: controller.signal });
           // Lab を離れた・ページを閉じたことによる中止は記録しない（残した checkpoint を、次に開いたとき「正常終了しなかった」として記録する）。
-          if (result && !abortedByLifecycle(controller.signal)) recordStage(stageRecordFromRun(stage, result, new Date().toISOString()));
+          if (result && !abortedByLifecycle(controller.signal)) {
+            recordStage(stageRecordFromRun(stage, result, new Date().toISOString(), caseIds.length));
+          }
         }
         // 中止の理由が Lab を離れたことなら、最後の段階（generating など）を残したまま解放する。
         if (!abortedByLifecycle(controller.signal)) checkpoint.update('unloading');

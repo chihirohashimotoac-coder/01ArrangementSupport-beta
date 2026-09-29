@@ -258,19 +258,22 @@ export function stageRecordFromLoad(load: LoadRecord, at: string): StageRecord {
   };
 }
 
-/** 生成を伴う段階（1 CASE / QUICK 10 / FULL 100）の結果。 */
-export function stageRecordFromRun(stage: FeasibilityStage, run: BenchmarkRun, at: string): StageRecord {
+/**
+ * 生成を伴う段階（1 CASE / QUICK 10 / FULL 100）の結果。
+ * `plannedCases` はその段階で実行する予定だったケース数（`stageCaseIds(stage, dataset).length`）。
+ * 中止すると run には終わったケースだけが入るので、合計は予定の数で記録する（例: 3 / 10 件）。
+ */
+export function stageRecordFromRun(stage: FeasibilityStage, run: BenchmarkRun, at: string, plannedCases: number): StageRecord {
   const errors = run.results.filter((result) => result.error !== null && !result.timedOut);
   const timeouts = run.results.filter((result) => result.timedOut).length;
-  const expected = stage === 'ONE_CASE' ? 1 : run.results.length;
-  const failed = errors.length > 0 || timeouts > 0 || run.results.length < expected;
+  const failed = errors.length > 0 || timeouts > 0 || run.results.length < plannedCases;
   return {
     stage,
     status: run.aborted ? 'aborted' : failed ? 'failed' : 'success',
     at,
     loadKind: run.load?.kind ?? null,
     loadTimeMs: run.load?.loadTimeMs ?? null,
-    casesTotal: run.results.length,
+    casesTotal: plannedCases,
     casesCompleted: run.results.filter((result) => result.error === null && !result.timedOut).length,
     errors: errors.length,
     timeouts,

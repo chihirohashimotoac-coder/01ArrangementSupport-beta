@@ -30,7 +30,7 @@ import {
 } from './profiles';
 import { PROMPT_VERSION_LABEL } from './prompt';
 import { DEFAULT_GENERATION_SETTINGS, runBenchmark } from './runner';
-import { createFakeClock, createMockRuntime } from './runtimes/mockRuntime';
+import { createFakeClock, createMockRuntime, faithfulResponse } from './runtimes/mockRuntime';
 import { fakeStorage } from './runtimes/fakeStorage';
 import { createWebLlmRuntime, type ChatOptionsLike, type WebLlmModuleLike } from './runtimes/webllmRuntime';
 import { BENCHMARK_CATEGORIES, type BenchmarkCandidate, type BenchmarkDataset, type BenchmarkRun } from './types';
@@ -222,13 +222,34 @@ describe('MOBILE_FEASIBILITY の段階制', () => {
     const load = await runtime.load(CANDIDATE, { allowDownload: false, signal: new AbortController().signal });
     expect(stageRecordFromLoad(load, at)).toMatchObject({ stage: 'LOAD_ONLY', status: 'success', loadKind: 'cache-cold' });
     const run = await runBenchmark({ runtime, candidate: CANDIDATE, dataset: dataset(), caseIds: stageCaseIds('ONE_CASE', dataset()), load, clockIso: ISO });
-    expect(stageRecordFromRun('ONE_CASE', run, at)).toMatchObject({ status: 'failed', errors: 1, gpuError: true });
+    expect(stageRecordFromRun('ONE_CASE', run, at, 1)).toMatchObject({ status: 'failed', errors: 1, gpuError: true });
 
     const noisy = createMockRuntime({ clock: createFakeClock(), cachedCandidateIds: [CANDIDATE.id], respond: () => 'STANDARD_ROUTE です。' });
     await noisy.load(CANDIDATE, { allowDownload: false, signal: new AbortController().signal });
     const quality = await runBenchmark({ runtime: noisy, candidate: CANDIDATE, dataset: dataset(), caseIds: stageCaseIds('ONE_CASE', dataset()), clockIso: ISO });
     expect(quality.results[0].validationPassed).toBe(false);
-    expect(stageRecordFromRun('ONE_CASE', quality, at).status).toBe('success');
+    expect(stageRecordFromRun('ONE_CASE', quality, at, 1).status).toBe('success');
+  });
+
+  it('中止した段階は、合計を予定のケース数で記録する（3 / 3 件ではなく 3 / 10 件）', async () => {
+    const controller = new AbortController();
+    let generated = 0;
+    const runtime = createMockRuntime({
+      clock: createFakeClock(),
+      cachedCandidateIds: [CANDIDATE.id],
+      respond: (request) => {
+        generated += 1;
+        if (generated === 3) controller.abort();
+        return faithfulResponse(request);
+      },
+    });
+    await runtime.load(CANDIDATE, { allowDownload: false, signal: new AbortController().signal });
+    const caseIds = stageCaseIds('QUICK_10', dataset());
+    const run = await runBenchmark({ runtime, candidate: CANDIDATE, dataset: dataset(), caseIds, signal: controller.signal, clockIso: ISO });
+    expect(run.results).toHaveLength(3);
+    expect(stageRecordFromRun('QUICK_10', run, at, caseIds.length)).toMatchObject({ status: 'aborted', casesTotal: 10, casesCompleted: 3 });
+    // 中止ではなく途中で終わった（予定より少ない）なら失敗。
+    expect(stageRecordFromRun('QUICK_10', { ...run, aborted: false }, at, caseIds.length).status).toBe('failed');
   });
 });
 
