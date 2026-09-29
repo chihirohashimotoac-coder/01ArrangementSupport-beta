@@ -53,6 +53,25 @@ export const BASELINE_CANDIDATE: BenchmarkCandidate = {
 const QWEN3_NOTE =
   '01AS では thinking を原則 OFF（WebLLM の extra_body.enable_thinking=false）。比較のため ON も計測できる。';
 
+/**
+ * Qwen3（0.6B / 1.7B / 4B / 8B は同じ tokenizer）で数えた 01AS Core v1 の prompt token 数。
+ *
+ * 2026-09-29 に開発環境で、Qwen3 の tokenizer.json（npm `@lenml/tokenizer-qwen3` 3.7.2 に同梱。語彙 151,669）と
+ * Qwen3 の chat template（`<|im_start|>system … <|im_end|>`・thinking OFF の空の `<think></think>`）で数えた。
+ * 平均 1094.2 は、iPhone の実機（WebLLM・Qwen3 0.6B）の usage.prompt_tokens の平均 約 1094 と一致した。
+ * 計測の手順は docs/AI_MODEL_BENCHMARK.md 10 節。データセット・prompt を変えたら数え直す（テストが指紋を照合する）。
+ */
+const QWEN3_PROMPT_TOKENS = {
+  datasetFingerprint: 'd8bcc5db4101150e',
+  promptVersion: '01as-explain-ja@1',
+  cases: 100,
+  meanTokens: 1094.2,
+  p95Tokens: 1507,
+  maxTokens: 1659,
+  maxCaseId: 'SU-301-3',
+  tokenizerJa: 'Qwen3 tokenizer（語彙 151,669・chat template 込み・thinking OFF）',
+} as const;
+
 export const BENCHMARK_CANDIDATES: readonly BenchmarkCandidate[] = [
   BASELINE_CANDIDATE,
   // --- WebLLM primary candidates -----------------------------------------
@@ -76,6 +95,7 @@ export const BENCHMARK_CANDIDATES: readonly BenchmarkCandidate[] = [
     supportsThinkingToggle: true,
     adoptionStatus: 'NOT_EVALUATED',
     notesJa: QWEN3_NOTE,
+    promptTokenMeasurement: QWEN3_PROMPT_TOKENS,
   },
   {
     id: 'webllm-qwen3-1.7b',
@@ -97,6 +117,7 @@ export const BENCHMARK_CANDIDATES: readonly BenchmarkCandidate[] = [
     supportsThinkingToggle: true,
     adoptionStatus: 'NOT_EVALUATED',
     notesJa: QWEN3_NOTE,
+    promptTokenMeasurement: QWEN3_PROMPT_TOKENS,
   },
   {
     id: 'webllm-qwen3-4b',
@@ -118,6 +139,7 @@ export const BENCHMARK_CANDIDATES: readonly BenchmarkCandidate[] = [
     supportsThinkingToggle: true,
     adoptionStatus: 'NOT_EVALUATED',
     notesJa: QWEN3_NOTE,
+    promptTokenMeasurement: QWEN3_PROMPT_TOKENS,
   },
   {
     id: 'webllm-qwen3-8b',
@@ -139,6 +161,7 @@ export const BENCHMARK_CANDIDATES: readonly BenchmarkCandidate[] = [
     supportsThinkingToggle: true,
     adoptionStatus: 'NOT_EVALUATED',
     notesJa: QWEN3_NOTE,
+    promptTokenMeasurement: QWEN3_PROMPT_TOKENS,
   },
   // --- Cross-family candidates --------------------------------------------
   {

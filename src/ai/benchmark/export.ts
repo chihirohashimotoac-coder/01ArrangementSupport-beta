@@ -9,8 +9,9 @@
  * - JSON にはデータセット（Evidence・prompt の指紋）も入れ、後から同じ入力を確認できるようにする
  */
 import { summarizeRun, type RunSummary } from './metrics';
+import { profileKey, runProfileOf, sameBenchmarkProfile } from './profiles';
 import { buildPrompt } from './prompt';
-import type { BenchmarkDataset, BenchmarkRun, CaseResult } from './types';
+import type { BenchmarkDataset, BenchmarkRun, BenchmarkRunProfile, CaseResult } from './types';
 
 export const HUMAN_RATING_KEYS = [
   'japaneseNaturalness',
@@ -104,7 +105,11 @@ export interface BenchmarkExport {
       readonly input: unknown;
     }[];
   } | null;
-  readonly runs: readonly (BenchmarkRun & { readonly summary: RunSummary })[];
+  /** 各 run の profile は必ず入れる（記録の無い古い run は STANDARD v1・`recorded: false`）。 */
+  readonly runs: readonly (BenchmarkRun & {
+    readonly profile: BenchmarkRunProfile & { readonly recorded: boolean };
+    readonly summary: RunSummary;
+  })[];
   readonly ratings: HumanRatings;
   readonly ratingScale: Readonly<Record<HumanRatingKey, string>>;
 }
@@ -120,11 +125,28 @@ export function datasetMatchingRun(dataset: BenchmarkDataset | null, run: Benchm
     : null;
 }
 
+/**
+ * profile（STANDARD / MOBILE_FEASIBILITY と版）が違う run を 1 つの export・評価シートへ混ぜない。
+ * 条件が違う結果を同じ benchmark として比べないため（`profiles.ts`）。
+ */
+export class BenchmarkProfileMixError extends Error {
+  constructor(keys: readonly string[]) {
+    super(`profile が違う run を混ぜて export しません（${keys.join(' / ')}）。profile ごとに分けてください。`);
+    this.name = 'BenchmarkProfileMixError';
+  }
+}
+
+function assertSingleProfile(runs: readonly BenchmarkRun[]): void {
+  if (sameBenchmarkProfile(runs)) return;
+  throw new BenchmarkProfileMixError([...new Set(runs.map((run) => profileKey(runProfileOf(run))))]);
+}
+
 export function buildJsonExport(
   runs: readonly BenchmarkRun[],
   ratings: HumanRatings,
   dataset: BenchmarkDataset | null,
 ): BenchmarkExport {
+  assertSingleProfile(runs);
   // 渡されたデータセットが run のものと違えば入れない（run が 1 件のときの呼び出しを想定した安全策）。
   const matched = runs.length > 0 && runs.every((run) => datasetMatchingRun(dataset, run) !== null) ? dataset : null;
   const responseIds = new Set(runs.flatMap((run) => run.results.map((result) => result.responseId)));
@@ -146,7 +168,7 @@ export function buildJsonExport(
           })),
         }
       : null,
-    runs: runs.map((run) => ({ ...run, summary: summarizeRun(run) })),
+    runs: runs.map((run) => ({ ...run, profile: runProfileOf(run), summary: summarizeRun(run) })),
     ratings: Object.fromEntries(Object.entries(ratings).filter(([id]) => responseIds.has(id))),
     ratingScale: HUMAN_RATING_LABEL_JA,
   };
@@ -179,6 +201,8 @@ const RESULT_COLUMNS = [
   'contradiction_count',
   'unsupported_claims',
   'contradictions',
+  'failure_codes',
+  'finish_reason',
   'error',
   'ttft_ms',
   'generation_time_ms',
@@ -188,7 +212,18 @@ const RESULT_COLUMNS = [
   'text',
 ] as const;
 
-const IDENTITY_COLUMNS = ['run_id', 'candidate_id', 'runtime_id', 'runtime_model_id', 'thinking', 'prompt_version', 'dataset_version'] as const;
+const IDENTITY_COLUMNS = [
+  'run_id',
+  'candidate_id',
+  'runtime_id',
+  'runtime_model_id',
+  'thinking',
+  'prompt_version',
+  'dataset_version',
+  'profile_id',
+  'profile_version',
+  'validator_version',
+] as const;
 
 function round(value: number | null, digits = 1): string {
   return value === null ? '' : value.toFixed(digits);
@@ -200,6 +235,7 @@ export function buildRatingCsv(
   ratings: HumanRatings,
   options: CsvOptions = {},
 ): string {
+  assertSingleProfile(runs);
   const blind = options.blind ?? false;
   const header = [
     ...(blind ? [] : IDENTITY_COLUMNS),
@@ -212,7 +248,18 @@ export function buildRatingCsv(
       const rating = ratings[result.responseId] ?? {};
       const identity = blind
         ? []
-        : [run.runId, run.candidateId, run.runtimeId, run.runtimeModelId, run.settings.thinking, run.promptVersion, run.datasetVersion];
+        : [
+            run.runId,
+            run.candidateId,
+            run.runtimeId,
+            run.runtimeModelId,
+            run.settings.thinking,
+            run.promptVersion,
+            run.datasetVersion,
+            runProfileOf(run).id,
+            runProfileOf(run).version,
+            run.validatorVersion ?? 1,
+          ];
       return {
         responseId: result.responseId,
         cells: [
@@ -226,6 +273,8 @@ export function buildRatingCsv(
           result.contradictions.length,
           result.unsupportedClaims.join(' / '),
           result.contradictions.join(' / '),
+          result.failureCodes?.join(' ') ?? '',
+          result.finishReason ?? '',
           result.error ?? '',
           round(result.timeToFirstTokenMs),
           round(result.generationTimeMs),

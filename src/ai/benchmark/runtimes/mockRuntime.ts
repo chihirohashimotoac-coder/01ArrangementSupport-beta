@@ -65,12 +65,22 @@ export interface MockRuntimeOptions {
   readonly cachedElsewhere?: Partial<Record<ModelStorageBackend, readonly string[]>>;
   /** 取得を伴う読み込みで投げる失敗（容量制限などを模擬する）。 */
   readonly failDownload?: (candidate: BenchmarkCandidate) => unknown;
+  /** キャッシュからの読み込みで投げる失敗（GPU への読み込みの失敗などを模擬する）。 */
+  readonly failLoad?: (candidate: BenchmarkCandidate, contextWindowSize: number | null) => unknown;
+  /** 生成の finish_reason（既定は stop）。 */
+  readonly finishReason?: (request: GenerationRequest) => string | null;
+  /** 一部だけ保存された（取得が途中で止まった）候補。 */
+  readonly partialCandidateIds?: readonly string[];
 }
 
 export interface MockRuntime extends BenchmarkRuntime {
   readonly log: string[];
   readonly cached: Set<string>;
   loadedCandidateId(): string | null;
+  /** 読み込み中のモデルの context window（読み込んでいなければ undefined）。 */
+  loadedContextWindowSize(): number | null | undefined;
+  /** いま GPU に載っているモデルの数（読み込み・解放の対応を確かめる。0 か 1 のはず）。 */
+  residentModels(): number;
 }
 
 /** 決定論的なトークン数（2 文字 = 1 トークンとみなす）。 */
@@ -85,7 +95,9 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
   const loadedOnce = new Set<string>();
   const log: string[] = [];
   const backend = options.storageBackend ?? DEFAULT_MODEL_STORAGE_BACKEND;
+  const partial = new Set(options.partialCandidateIds ?? []);
   let loaded: string | null = null;
+  let loadedContext: number | null = null;
 
   return {
     id: options.id ?? 'mock',
@@ -94,16 +106,25 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
     log,
     cached,
     loadedCandidateId: () => loaded,
+    loadedContextWindowSize: () => (loaded === null ? undefined : loadedContext),
+    residentModels: () => (loaded === null ? 0 : 1),
     supports: () => true,
     modelStorage: {
       backend,
       isCachedIn: async (candidate, target) =>
         target === backend ? cached.has(candidate.id) : (options.cachedElsewhere?.[target] ?? []).includes(candidate.id),
+      hasPartial: async (candidate) => !cached.has(candidate.id) && partial.has(candidate.id),
     },
     isCached: async (candidate) => cached.has(candidate.id),
     async load(candidate: BenchmarkCandidate, loadOptions: LoadOptions): Promise<LoadRecord> {
-      if (loaded === candidate.id) {
-        return { candidateId: candidate.id, kind: 'already-loaded', loadTimeMs: 0 };
+      const contextWindowSize = loadOptions.contextWindowSize ?? null;
+      if (loaded === candidate.id && loadedContext === contextWindowSize) {
+        return { candidateId: candidate.id, kind: 'already-loaded', loadTimeMs: 0, contextWindowSize };
+      }
+      if (loaded !== null) {
+        // 実際の Runtime と同じく、別のモデル・別の設定を読み込む前に今のモデルを解放する。
+        log.push(`unload:${loaded}`);
+        loaded = null;
       }
       const started = clock.now();
       let kind: LoadRecord['kind'];
@@ -119,13 +140,18 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
         kind = 'download';
       } else {
         kind = loadedOnce.has(candidate.id) ? 'cache-warm' : 'cache-cold';
+        if (options.failLoad) {
+          const failure = options.failLoad(candidate, contextWindowSize);
+          if (failure !== undefined) throw failure;
+        }
       }
       clock.advance(options.loadMs ?? (kind === 'cache-warm' ? 200 : 1000));
       loadOptions.onProgress?.(1, 'ready');
       loaded = candidate.id;
+      loadedContext = contextWindowSize;
       loadedOnce.add(candidate.id);
-      log.push(`load:${candidate.id}:${kind}`);
-      return { candidateId: candidate.id, kind, loadTimeMs: clock.now() - started };
+      log.push(`load:${candidate.id}:${kind}${contextWindowSize === null ? '' : `:ctx${contextWindowSize}`}`);
+      return { candidateId: candidate.id, kind, loadTimeMs: clock.now() - started, contextWindowSize };
     },
     async generate(request: GenerationRequest): Promise<GenerationRecord> {
       if (loaded === null) throw new BenchmarkRuntimeError('not-loaded', 'モデルが読み込まれていません。');
@@ -142,15 +168,17 @@ export function createMockRuntime(options: MockRuntimeOptions = {}): MockRuntime
         timeToFirstVisibleTokenMs: ttft,
         generationTimeMs: clock.now() - started,
         runtimeDecodeTokensPerSecond: null,
-        finishReason: 'stop',
+        finishReason: options.finishReason ? options.finishReason(request) : 'stop',
       };
     },
     async unload() {
+      if (loaded !== null) log.push(`unload:${loaded}`);
       loaded = null;
     },
     async deleteCache(candidate) {
       log.push(`delete:${candidate.id}`);
       cached.delete(candidate.id);
+      partial.delete(candidate.id);
       if (loaded === candidate.id) loaded = null;
     },
     cachedSizeBytes: async (candidate) =>

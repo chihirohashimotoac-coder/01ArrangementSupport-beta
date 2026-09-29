@@ -179,6 +179,8 @@ export interface LoadRecord {
   readonly candidateId: string;
   readonly kind: LoadKind;
   readonly loadTimeMs: number;
+  /** 読み込みに使った context window（null は Runtime の既定）。PR #5 以前の記録には無い。 */
+  readonly contextWindowSize?: number | null;
 }
 
 export interface LoadOptions {
@@ -189,6 +191,12 @@ export interface LoadOptions {
   readonly allowDownload: boolean;
   readonly signal: AbortSignal;
   readonly onProgress?: (fraction: number, text: string) => void;
+  /**
+   * Runtime に渡す context window（Benchmark Profile が決める）。省略・null は Runtime の既定のまま。
+   * モデルのファイル（取得・保存するもの）は変えない実行時の設定なので、変えても再取得は起きない。
+   * 読み込み済みのモデルと値が違えば、読み込み直す。
+   */
+  readonly contextWindowSize?: number | null;
 }
 
 /**
@@ -205,6 +213,11 @@ export interface RuntimeModelStorage {
    * 分からなければ null。保存方式が違えば、同じモデル ID でも保存場所は別。
    */
   isCachedIn(candidate: BenchmarkCandidate, backend: ModelStorageBackend): Promise<boolean | null>;
+  /**
+   * この Runtime の保存方式に、その候補のファイルが**一部だけ**残っているか（前回の取得が途中で止まった等）。
+   * 完全に保存済み・何も無いなら false。数えられない方式（IndexedDB）・失敗は null（不明）。取得も作成もしない。
+   */
+  hasPartial?(candidate: BenchmarkCandidate): Promise<boolean | null>;
 }
 
 /** 候補モデルを Lab から動かす Runtime。実装は `runtimes/`。 */
@@ -307,6 +320,27 @@ export interface BenchmarkCandidate {
   readonly supportsThinkingToggle: boolean;
   readonly adoptionStatus: AdoptionStatus;
   readonly notesJa: string;
+  /**
+   * そのモデルの tokenizer で数えた Benchmark の prompt token 数（開発環境で計測した記録）。
+   * context window を小さくする Benchmark Profile（MOBILE_FEASIBILITY）は、これが無い候補・データセットや
+   * prompt の版が計測時と違う候補には使わない（context 不足で失敗させないため）。未計測なら省略。
+   */
+  readonly promptTokenMeasurement?: PromptTokenMeasurement;
+}
+
+export interface PromptTokenMeasurement {
+  /** 計測したデータセットの指紋・prompt の版（違えば計測をやり直す）。 */
+  readonly datasetFingerprint: string;
+  readonly promptVersion: string;
+  readonly cases: number;
+  /** chat template（system / user / assistant の開始と、thinking OFF の空の think）を含む token 数。 */
+  readonly meanTokens: number;
+  readonly p95Tokens: number;
+  readonly maxTokens: number;
+  /** 最大になったケース。 */
+  readonly maxCaseId: string;
+  /** 計測に使った tokenizer の説明（語彙数など）。 */
+  readonly tokenizerJa: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +359,41 @@ export interface StyleFlags {
   readonly englishSentence: boolean;
   /** thinking OFF なのに推論の本文が出た / 閉じていない think タグがある。 */
   readonly thinkingLeak: boolean;
+}
+
+/**
+ * 自動検証の失敗の区分（validator v2 から記録する）。1 件の応答に複数付くことがある。
+ *
+ * - `GENERATION_ERROR` / `TIMEOUT`: 応答が返らなかった
+ * - `SHAPE_PROBLEM`: 空・長すぎる・閉じていない think タグなど
+ * - `ENGINE_CONTRADICTION` / `UNSUPPORTED_CLAIM`: engine と矛盾 / Evidence に無い主張
+ * - `REPETITION`: 同じ的の並び・同じ文字列・同じ文が不自然に繰り返す（`checks.ts` の `REPETITION_RULES`）
+ * - `OUTPUT_LIMIT_REACHED`: 生成が出力の上限（max_tokens・context window）で打ち切られた
+ * - `INTERNAL_CODE_LEAK`: `GOOD_DECISION` のような内部の reason code が本文に出た
+ */
+export const VALIDATION_FAILURE_CODES = [
+  'GENERATION_ERROR',
+  'TIMEOUT',
+  'SHAPE_PROBLEM',
+  'ENGINE_CONTRADICTION',
+  'UNSUPPORTED_CLAIM',
+  'REPETITION',
+  'OUTPUT_LIMIT_REACHED',
+  'INTERNAL_CODE_LEAK',
+] as const;
+export type ValidationFailureCode = (typeof VALIDATION_FAILURE_CODES)[number];
+
+/**
+ * 出力の上限に達した根拠。
+ *
+ * - `finish-reason`: Runtime が `finish_reason: "length"` を返した（優先）
+ * - `token-count`: finish_reason が分からない（古い記録など）ので、出力トークン数が上限の近くまで達したことから
+ *   安全側に判断した（`OUTPUT_LIMIT_TOKEN_MARGIN`）
+ */
+export interface OutputLimitFinding {
+  readonly basis: 'finish-reason' | 'token-count';
+  readonly outputTokens: number | null;
+  readonly maxTokens: number;
 }
 
 export interface CaseResult {
@@ -354,6 +423,36 @@ export interface CaseResult {
   readonly timeToFirstVisibleTokenMs: number | null;
   readonly generationTimeMs: number | null;
   readonly tokensPerSecond: number | null;
+  // --- validator v2（PR #5）で追加。v1 の記録には無い（未計測として扱い、再評価で埋める） ---
+  /** Runtime が返した finish_reason（`stop` / `length` / `abort` など）。分からなければ null。 */
+  readonly finishReason?: string | null;
+  /** 反復の説明（無ければ null）。 */
+  readonly repetition?: string | null;
+  /** 出力の上限に達したか（無ければ null）。 */
+  readonly outputLimit?: OutputLimitFinding | null;
+  /** 本文に出た内部の reason code。 */
+  readonly internalCodeLeaks?: readonly string[];
+  /** 検証の失敗の区分（空なら合格）。 */
+  readonly failureCodes?: readonly ValidationFailureCode[];
+}
+
+/**
+ * run を実行した Benchmark Profile（`profiles.ts`）。**profile が違う run どうしは同じ benchmark として比べない。**
+ */
+export interface BenchmarkRunProfile {
+  readonly id: string;
+  readonly version: number;
+  /** Runtime に渡した context window。null は Runtime の既定（WebLLM の prebuilt の設定）のまま。 */
+  readonly contextWindowSize: number | null;
+  /** MOBILE_FEASIBILITY の段階（LOAD ONLY を除く）。STANDARD では null。 */
+  readonly stage: string | null;
+}
+
+/** 保存済みの run を、モデルを再実行せずに現在の検証で評価し直した記録。 */
+export interface BenchmarkReevaluation {
+  readonly originalRunId: string;
+  readonly originalValidatorVersion: number;
+  readonly reevaluatedAt: string;
 }
 
 export interface GenerationSettings {
@@ -385,4 +484,10 @@ export interface BenchmarkRun {
   readonly device: unknown;
   readonly aborted: boolean;
   readonly results: readonly CaseResult[];
+  /** 自動検証の版（`BENCHMARK_VALIDATOR_VERSION`）。PR #5 以前の記録には無い（= 1）。 */
+  readonly validatorVersion?: number;
+  /** 実行した Benchmark Profile。PR #5 以前の記録には無い（STANDARD と同じ条件で実行した）。 */
+  readonly profile?: BenchmarkRunProfile;
+  /** 再評価で作った run だけが持つ（元の run は書き換えない）。 */
+  readonly reevaluation?: BenchmarkReevaluation;
 }
