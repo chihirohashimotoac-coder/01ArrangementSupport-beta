@@ -32,16 +32,16 @@ type Tab =
 const AiModelLabPage = lazy(() => import('./lab/AiModelLabPage'));
 const AI_LAB_AVAILABLE = isAiDeveloperGateOpen();
 
-const TABS: ReadonlyArray<{ id: Tab; label: string; sub: string }> = [
-  { id: 'checkout', label: 'CHECKOUT', sub: '2〜170・この3投で上がる' },
-  { id: 'setup', label: 'SETUP', sub: '171〜350・次の3投に向けて整える' },
-  { id: 'training', label: 'TRAINING', sub: '反復練習で判断を磨く' },
-  { id: 'simulation', label: 'SIMULATION', sub: '1ゲーム通して自力でプレイする' },
+const TABS: ReadonlyArray<{ id: Tab; label: string; scope: string; sub: string }> = [
+  { id: 'checkout', label: 'CHECKOUT', scope: '2–170', sub: 'この3投で上がる' },
+  { id: 'setup', label: 'SETUP', scope: '171–350', sub: '次の3投に向けて整える' },
+  { id: 'training', label: 'TRAINING', scope: '2–350', sub: '反復練習で判断を磨く' },
+  { id: 'simulation', label: 'SIMULATION', scope: '301 / 501 / 701', sub: '1ゲーム通して自力でプレイする' },
 ];
 
 const THEME_COLOR: Record<Theme, string> = {
-  dark: '#07111f',
-  light: '#edf4fb',
+  dark: '#15181b',
+  light: '#e7e9ec',
 };
 
 function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
@@ -51,6 +51,10 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
         01 のアレンジを「答えを覚える」のではなく「判断の規則を身につける」ためのアプリです。
         なぜそのナンバーなのか、外したらどうなるかまで表示します。
       </p>
+      {/*
+        モードの一覧。カードを並べるのではなく、罫線で区切った 1 枚の表として置く。
+        右側の数字は、そのモードが扱う範囲（残り点・開始点数）。
+      */}
       <div className="home__modes">
         {TABS.map((tab) => (
           <button
@@ -60,6 +64,7 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
             onClick={() => onSelect(tab.id)}
           >
             <span className="home__mode-label">{tab.label}</span>
+            <span className="home__mode-scope">{tab.scope}</span>
             <span className="home__mode-sub">{tab.sub}</span>
           </button>
         ))}
@@ -70,7 +75,7 @@ function HomePage({ onSelect }: { onSelect: (tab: Tab) => void }) {
         <li>成立するルートを不正解にはせず、推奨度（S / A / B / C）と理由を示します。</li>
       </ul>
       {/*
-        トップページの下部・右寄せに、控えめな導線だけを置く。
+        トップページの下部に、控えめな導線だけを置く。
         固定表示にはしない（盤面へ重ねない / モバイルの操作とセーフエリアを塞がない）。
       */}
       <div className="home__more">
@@ -135,6 +140,10 @@ export default function App() {
       {/* 更新が待機しているときだけ出る。どの画面でも、いちばん上。 */}
       <UpdateBanner />
 
+      {/*
+        ヘッダーにモードのナビゲーションも収める。
+        狭い画面ではアプリ名と設定の下へ 1 段で、広い画面では同じ 1 行に並ぶ（App.css）。
+      */}
       <header className="app__header">
         <button
           type="button"
@@ -142,11 +151,33 @@ export default function App() {
           data-testid="app-title"
           onClick={() => setTab('home')}
         >
-          01 Arrangement Support
+          <span className="app__mark">01</span>
+          <span className="app__name"> Arrangement Support</span>
           <span className="app__channel" data-testid="channel-badge">
             {CHANNEL_BADGE}
           </span>
         </button>
+
+        <nav className="app__nav" aria-label="モード">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              data-testid={`nav-${item.id}`}
+              aria-pressed={tab === item.id}
+              onClick={() => {
+                if ((tab === 'checkout' || tab === 'setup') &&
+                  (item.id === 'checkout' || item.id === 'setup') && tab !== item.id) {
+                  setPracticeSession((value) => value + 1);
+                }
+                setTab(item.id);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
         <button
           type="button"
           className="app__settings"
@@ -157,26 +188,6 @@ export default function App() {
           設定
         </button>
       </header>
-
-      <nav className="app__nav" aria-label="モード">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            data-testid={`nav-${item.id}`}
-            aria-pressed={tab === item.id}
-            onClick={() => {
-              if ((tab === 'checkout' || tab === 'setup') &&
-                (item.id === 'checkout' || item.id === 'setup') && tab !== item.id) {
-                setPracticeSession((value) => value + 1);
-              }
-              setTab(item.id);
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
 
       <main className="app__main">
         {tab === 'home' && <HomePage onSelect={setTab} />}

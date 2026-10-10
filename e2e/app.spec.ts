@@ -354,7 +354,7 @@ test('Light / Dark テーマを切り替え、リロード後も復元する', a
 
   await page.getByTestId('theme-light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#edf4fb');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#e7e9ec');
 
   for (const destination of ['nav-checkout', 'nav-setup', 'nav-training', 'app-title'] as const) {
     await page.getByTestId(destination).click();
@@ -368,7 +368,7 @@ test('Light / Dark テーマを切り替え、リロード後も復元する', a
 
   await page.getByTestId('theme-dark').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#07111f');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#15181b');
 });
 
 test('ユーザー向けUIに「ビジット」を表示しない', async ({ page }) => {

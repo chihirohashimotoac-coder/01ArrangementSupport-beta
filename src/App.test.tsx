@@ -139,7 +139,7 @@ describe('CHECKOUT 画面', () => {
     await openCheckoutWith(user, '103');
 
     // OTHER ROUTES の最初のカードは畳まれている。
-    const toggles = screen.getAllByRole('button', { name: /WHY THIS ROUTE/ });
+    const toggles = screen.getAllByRole('button', { name: /理由を見る/ });
     expect(toggles.length).toBeGreaterThan(0);
     expect(toggles[0]).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggles[0]);
@@ -935,7 +935,7 @@ describe('v1.3 テーマとユーザー向け文言', () => {
     expect(document.documentElement).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute(
       'content',
-      '#edf4fb',
+      '#e7e9ec',
     );
     expect(JSON.parse(window.localStorage.getItem('01as-beta:oas.preferences.v1') ?? '{}').theme).toBe(
       'light',
