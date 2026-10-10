@@ -58,8 +58,8 @@ export default defineConfig({
         scope: base,
         display: 'standalone',
         orientation: 'any',
-        background_color: '#07111f',
-        theme_color: '#07111f',
+        background_color: '#15181b',
+        theme_color: '#15181b',
         categories: ['sports', 'education', 'utilities'],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -84,7 +84,7 @@ export default defineConfig({
          * 共有するので、既定名のままだとスコープ文字列だけが区別の手がかりになる。
          */
         cacheId: CACHE_ID,
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
         /*
          * 開発者向けの AI MODEL LAB（Developer Gate 配下）と、その推論ライブラリ（WebLLM）は
          * precache しない。一般の利用者が使わない数 MB のコードを、全員の端末へ保存しないため。

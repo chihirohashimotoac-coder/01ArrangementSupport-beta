@@ -1,113 +1,200 @@
-/** Semantic theme system. Dark remains the product default. */
+/*
+ * Design system — "Calibrated Instrument"（docs/DESIGN_SYSTEM.md）
+ *
+ * 1. 本体は無彩色（Dark = グラファイト / Light = アルミ）。操作の主役は
+ *    チョーク色（Dark）・インク色（Light）の反転で示し、装飾の色は持たない。
+ * 2. 色は「意味」にだけ使う。推奨度 S / A / B / C、判定（良い・見直し・誤り）、
+ *    盤面の実物の配色、盤面で指している的（target）。
+ * 3. 数字が主役。残り点・ターゲット・本数は Archivo の可変幅（condensed）と
+ *    等幅数字（tabular-nums）で、桁がそろう計器の表示として組む。
+ *
+ * 各コンポーネントはここの semantic token だけを参照し、テーマ固有色を直書きしない。
+ */
+
+/* Archivo（SIL OFL 1.1, src/assets/fonts/OFL-Archivo.txt）。ラテン文字のみ同梱し、
+   日本語は端末のシステムフォントを使う（オフライン PWA の容量を増やさない）。 */
+@font-face {
+  font-family: 'Archivo 01AS';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url('./assets/fonts/archivo-latin-wdth.woff2') format('woff2-variations'),
+    url('./assets/fonts/archivo-latin-wdth.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+:root {
+  /* --- Typography ------------------------------------------------------- */
+  --font-sans: 'Archivo 01AS', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP',
+    'Noto Sans CJK JP', 'Yu Gothic UI', 'Yu Gothic', Meiryo, system-ui, sans-serif;
+  /* 計器の数字。幅を詰めて大きく組む。 */
+  --stretch-numeral: 78%;
+  --stretch-label: 92%;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.75rem;
+  --leading-tight: 1.15;
+  --leading-body: 1.65;
+
+  /* --- Spacing（4px 基準） ----------------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 3rem;
+
+  /* --- Shape：階層ごとに半径を変える（全部を同じ角丸にしない） ------------- */
+  --radius-xs: 3px; /* バッジ・タグ */
+  --radius-s: 6px; /* チップ・ボタン・入力 */
+  --radius-m: 10px; /* パネル */
+  --tap: 2.75rem; /* 44px */
+
+  /* --- Motion ------------------------------------------------------------ */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+
+  /* --- Layout ------------------------------------------------------------ */
+  --content-max: 76rem;
+  --reading-max: 44rem;
+}
+
+/* Dark（既定）: Tungsten graphite + chalk. */
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --background: #07111f;
-  --background-deep: #030912;
-  --surface: #0d1929;
-  --surface-alt: #111f31;
-  --surface-elevated: #16263a;
-  --surface-highlight: #1b3048;
-  --chip: #15263a;
-  --text: #f4f8fd;
-  --text-secondary: #b8c6d8;
-  --text-dim: #7f92a9;
-  --border: rgba(140, 174, 211, 0.18);
-  --border-strong: rgba(156, 192, 231, 0.34);
-  --accent: #56c7ff;
-  --accent-hover: #82d7ff;
-  --accent-soft: rgba(65, 176, 239, 0.14);
-  --accent-contrast: #03121e;
-  --success: #57dba2;
-  --success-soft: rgba(46, 193, 132, 0.14);
-  --warning: #f3c76b;
-  --warning-soft: rgba(216, 164, 55, 0.14);
-  --danger: #ff8290;
-  --danger-soft: rgba(229, 77, 94, 0.14);
-  --shadow-sm: 0 8px 24px rgba(0, 4, 12, 0.22);
-  --shadow-md: 0 18px 48px rgba(0, 4, 12, 0.34);
-  --shadow-lg: 0 30px 80px rgba(0, 3, 10, 0.48);
-  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.055);
-  --focus-ring: #9bdfff;
+  --background: #15181b;
+  --background-deep: #15181b;
+  --surface: #1c2024;
+  --surface-alt: #111417; /* 凹んだ窓（入力欄・数字の表示窓） */
+  --surface-elevated: #23282d;
+  --surface-highlight: #2b3137;
+  --chip: #23282d;
+  --text: #eeece7;
+  --text-secondary: #b5b9be;
+  --text-dim: #8e949b;
+  --border: #2d3338;
+  --border-strong: #434b53;
+  /* 主操作。チョーク色の面にインクの文字（反転）。 */
+  --accent: #eeece7;
+  --accent-hover: #ffffff;
+  --accent-soft: rgba(238, 236, 231, 0.08);
+  --accent-contrast: #15181b;
+  --success: #6fd6a2;
+  --success-soft: rgba(111, 214, 162, 0.12);
+  --warning: #e8c46a;
+  --warning-soft: rgba(232, 196, 106, 0.12);
+  --danger: #f28b85;
+  --danger-soft: rgba(242, 139, 133, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.42);
+  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --inset-well: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+  --focus-ring: #eeece7;
   --positive: var(--success);
   --positive-bg: var(--success-soft);
   --negative: var(--danger);
   --warn-bg: var(--danger-soft);
-  --warn-fg: #ffb2bb;
-  --grade-s-bg: rgba(45, 194, 132, 0.17);
-  --grade-s-fg: #7de8b8;
-  --grade-a-bg: rgba(58, 168, 230, 0.17);
-  --grade-a-fg: #8ed9ff;
-  --grade-b-bg: rgba(218, 173, 61, 0.16);
-  --grade-b-fg: #f1d981;
-  --grade-c-bg: rgba(226, 79, 95, 0.16);
-  --grade-c-fg: #ffabb4;
-  --board-surround: #050a11;
-  --board-edge: #617186;
-  --board-wire: #c3c9d2;
-  --board-number: #eef4fb;
-  --segment-dark: #1c1e23;
-  --segment-light: #f0e3c2;
-  --segment-red: #d02a32;
-  --segment-green: #17864a;
-  --highlight-fill: #2a6b8f;
-  --highlight-stroke: #7fd4ff;
-  --focus-fill: #a8731a;
+  --warn-fg: #f6aca7;
+  --caution-bg: var(--warning-soft);
+  --caution-fg: #efd38c;
+  --grade-s-bg: rgba(111, 214, 162, 0.13);
+  --grade-s-fg: #7fdcac;
+  --grade-a-bg: rgba(132, 182, 245, 0.13);
+  --grade-a-fg: #97c1f7;
+  --grade-b-bg: rgba(232, 196, 106, 0.13);
+  --grade-b-fg: #ebcb7b;
+  --grade-c-bg: rgba(242, 139, 133, 0.13);
+  --grade-c-fg: #f5a19c;
+  /* 盤面で「いま指している的」。盤面の focus とルートのチップを同じ色で結ぶ。 */
+  --target: #e3a64a;
+  --target-soft: rgba(227, 166, 74, 0.14);
+  --board-surround: #0d0f11;
+  --board-edge: #3d444b;
+  --board-wire: #b9bec4;
+  --board-number: #eeece7;
+  --segment-dark: #1d1f22;
+  --segment-light: #eee2c4;
+  --segment-red: #cd2c33;
+  --segment-green: #17834a;
+  --highlight-fill: #2a7aa1;
+  --highlight-stroke: #8fd8fb;
+  --focus-fill: #b37a1e;
 }
 
+/* Light: Aluminum + ink. */
 :root[data-theme='light'] {
   color-scheme: light;
-  --background: #edf4fb;
-  --background-deep: #e3edf8;
-  --surface: rgba(255, 255, 255, 0.82);
-  --surface-alt: #f3f7fc;
+  --background: #e7e9ec;
+  --background-deep: #e7e9ec;
+  --surface: #f6f7f8;
+  --surface-alt: #e0e3e6;
   --surface-elevated: #ffffff;
-  --surface-highlight: #e8f3fd;
-  --chip: #f6f9fd;
-  --text: #10243e;
-  --text-secondary: #425a76;
-  --text-dim: #687e97;
-  --border: rgba(70, 111, 154, 0.17);
-  --border-strong: rgba(65, 111, 163, 0.3);
-  --accent: #087fc1;
-  --accent-hover: #006da9;
-  --accent-soft: rgba(25, 146, 211, 0.11);
-  --accent-contrast: #ffffff;
-  --success: #087f5b;
-  --success-soft: rgba(12, 139, 98, 0.1);
-  --warning: #9a6500;
-  --warning-soft: rgba(192, 127, 12, 0.1);
-  --danger: #be3245;
-  --danger-soft: rgba(202, 54, 75, 0.09);
-  --shadow-sm: 0 8px 22px rgba(36, 66, 101, 0.08);
-  --shadow-md: 0 18px 42px rgba(36, 66, 101, 0.12);
-  --shadow-lg: 0 30px 72px rgba(36, 66, 101, 0.16);
-  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  --focus-ring: #087fc1;
+  --surface-highlight: #d6dade;
+  --chip: #ffffff;
+  --text: #15181b;
+  --text-secondary: #444b53;
+  --text-dim: #5b626b;
+  --border: #ccd1d6;
+  --border-strong: #a4abb3;
+  --accent: #15181b;
+  --accent-hover: #2b3036;
+  --accent-soft: rgba(21, 24, 27, 0.06);
+  --accent-contrast: #f6f7f8;
+  --success: #11704a;
+  --success-soft: rgba(17, 112, 74, 0.09);
+  --warning: #7d5800;
+  --warning-soft: rgba(176, 125, 0, 0.11);
+  --danger: #b0271f;
+  --danger-soft: rgba(176, 39, 31, 0.08);
+  --shadow-sm: 0 1px 2px rgba(21, 24, 27, 0.08);
+  --shadow-md: 0 6px 18px rgba(21, 24, 27, 0.08);
+  --shadow-lg: 0 16px 40px rgba(21, 24, 27, 0.12);
+  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --inset-well: inset 0 1px 3px rgba(21, 24, 27, 0.12);
+  --focus-ring: #15181b;
   --positive: var(--success);
   --positive-bg: var(--success-soft);
   --negative: var(--danger);
   --warn-bg: var(--danger-soft);
-  --warn-fg: #a7273b;
-  --grade-s-bg: rgba(14, 139, 98, 0.11);
-  --grade-s-fg: #087755;
-  --grade-a-bg: rgba(12, 126, 190, 0.11);
-  --grade-a-fg: #066fa9;
-  --grade-b-bg: rgba(168, 115, 8, 0.11);
-  --grade-b-fg: #846000;
-  --grade-c-bg: rgba(190, 50, 69, 0.1);
-  --grade-c-fg: #a42639;
-  --board-surround: #151b24;
-  --board-edge: #718096;
-  --board-wire: #d7dbe1;
-  --board-number: #f5f8fc;
-  --segment-dark: #20242a;
-  --segment-light: #f2e6c7;
+  --warn-fg: #a3231c;
+  --caution-bg: var(--warning-soft);
+  --caution-fg: #6e4e00;
+  --grade-s-bg: rgba(17, 112, 74, 0.1);
+  --grade-s-fg: #0f6a45;
+  --grade-a-bg: rgba(31, 95, 184, 0.1);
+  --grade-a-fg: #1c58ab;
+  --grade-b-bg: rgba(125, 88, 0, 0.11);
+  --grade-b-fg: #6e4e00;
+  --grade-c-bg: rgba(176, 39, 31, 0.09);
+  --grade-c-fg: #a3231c;
+  --target: #845000;
+  --target-soft: rgba(176, 112, 10, 0.12);
+  --board-surround: #1a1d20;
+  --board-edge: #5a626a;
+  --board-wire: #d3d7dc;
+  --board-number: #f6f7f8;
+  --segment-dark: #212428;
+  --segment-light: #f0e5c8;
   --segment-red: #c82c35;
   --segment-green: #147c45;
   --highlight-fill: #237ba8;
   --highlight-stroke: #b9ebff;
-  --focus-fill: #a76f14;
+  --focus-fill: #b37a1e;
 }
 
 * { box-sizing: border-box; }
@@ -116,31 +203,45 @@ html { background: var(--background); }
 body {
   min-height: 100dvh;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 32rem),
-    radial-gradient(circle at 92% 18%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 28rem),
-    linear-gradient(155deg, var(--background) 0%, var(--background-deep) 100%);
+  background: var(--background);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.5;
+  line-height: var(--leading-body);
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
   font-synthesis: none;
-  transition: background-color 200ms ease, color 200ms ease;
+  transition: background-color var(--dur-base) ease, color var(--dur-base) ease;
 }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled) {
-  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease,
-    box-shadow 180ms ease, transform 180ms ease;
+  transition: color var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
-@media (hover: hover) { button:not(:disabled):hover { border-color: var(--border-strong); } }
-button:not(:disabled):active { transform: translateY(1px); }
+/* 押した手応え。沈む量はごく小さく、遅延は作らない。 */
+button:not(:disabled):active { transform: scale(0.985); }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+h1, h2, h3, h4 { text-wrap: balance; }
+p { text-wrap: pretty; }
+
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/*
+ * 結果が出たとき・開いたときの一度きりの表示。操作への応答にだけ使う。
+ * 位置は動かさない（transform を使わない）。答えの位置が一瞬でもずれると、
+ * 読みはじめの視線と、位置を前提にしたスクロール処理の両方を乱すため。
+ */
+@keyframes reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
