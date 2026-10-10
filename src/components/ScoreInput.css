@@ -1,79 +1,88 @@
 /*
- * 残り点の入力はこの画面の主操作。
- * v1.2 でプリセットボタンを廃止したので、カードはラベル行と大きな入力欄だけになる。
- * 余白は「ラベル → 入力欄 → 次のカード（STANDARD / BEST）」の流れが
- * そのまま読める最小限にとどめ、答えを 1 画面でも早く見せる。
+ * 残り点の入力 = この画面の主操作。
+ *
+ * 計器の「表示窓」として組む。凹んだ窓に、幅を詰めた等幅数字を大きく置く。
+ * 確定ボタンもプリセットも置かない（docs/SPEC.md 3-1）。ラベル → 窓 → 答え、の
+ * 流れがそのまま読める最小限の余白にとどめる。
  */
 .score-input {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .score-input__labels {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 0.5rem;
+  justify-content: space-between;
+  column-gap: var(--space-3);
   row-gap: 0.1rem;
   cursor: pointer;
 }
 
 .score-input__label {
-  font-size: 0.8rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: var(--text-sm);
+  font-weight: 700;
   color: var(--text);
 }
 
 /* 320px でも折り返しで収まる長さにとどめる（長い説明は置かない）。 */
 .score-input__hint {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: 500;
   line-height: 1.4;
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .score-input__field {
   display: flex;
   align-items: center;
-  min-height: 3.5rem;
-  padding: 0.2rem 0.75rem;
-  background: var(--chip);
-  border: 2px solid var(--border-strong);
-  border-radius: 0.85rem;
+  min-height: 5.25rem;
+  padding: 0 var(--space-4);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--inset-well);
+  transition: border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
 }
 
+/* 入力中は窓の縁だけを明るくする（光らせない）。 */
 .score-input__field:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--text);
+  box-shadow: var(--inset-well), 0 0 0 1px var(--text);
 }
 
 .score-input__input {
   flex: 1;
   min-width: 0;
-  font-family: inherit;
-  font-size: 2.5rem;
+  padding: 0;
+  font-size: clamp(3.25rem, 17vw, 4.25rem);
   font-weight: 800;
-  line-height: 1.15;
+  font-stretch: 74%;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
   text-align: center;
-  font-variant-numeric: tabular-nums;
   color: var(--text);
   background: transparent;
   border: 0;
-  padding: 0;
+  caret-color: var(--text);
 }
 
 /* 入力例（「例 103」）は数字ほど主張させない。 */
 .score-input__input::placeholder {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: var(--text-lg);
+  font-weight: 500;
+  font-stretch: 100%;
   letter-spacing: 0.04em;
   color: var(--text-dim);
-  opacity: 0.75;
+  opacity: 0.9;
 }
 
-/* 枠全体が :focus-within で光るので、入力欄そのものの outline は出さない。 */
+/* 枠全体が :focus-within で強調されるので、入力欄そのものの outline は出さない。 */
 .score-input__input:focus,
 .score-input__input:focus-visible {
   outline: none;
@@ -81,48 +90,7 @@
 
 .score-input__error {
   margin: 0;
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--negative);
 }
-
-/* v1.3 premium primary-input treatment. */
-.score-input { gap: 0.65rem; }
-.score-input__labels { justify-content: space-between; column-gap: 0.75rem; }
-.score-input__label { font-size: 0.7rem; letter-spacing: 0.16em; color: var(--text-secondary); }
-.score-input__hint { color: var(--text-dim); }
-.score-input__field {
-  position: relative;
-  min-height: 5rem;
-  padding: 0.35rem 1rem;
-  overflow: hidden;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--surface-elevated) 94%, var(--accent) 6%), var(--surface-alt));
-  border: 1px solid var(--border-strong);
-  border-radius: 1rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
-}
-.score-input__field::after {
-  content: '';
-  position: absolute;
-  inset: auto 15% -2.5rem;
-  height: 3rem;
-  border-radius: 50%;
-  background: var(--accent);
-  filter: blur(2.3rem);
-  opacity: 0.1;
-  pointer-events: none;
-}
-.score-input__field:focus-within {
-  border-color: var(--accent);
-  box-shadow: var(--inner-highlight), 0 0 0 3px var(--accent-soft), var(--shadow-md);
-}
-.score-input__input {
-  position: relative;
-  z-index: 1;
-  font-size: clamp(2.75rem, 14vw, 4.25rem);
-  font-weight: 820;
-  letter-spacing: -0.035em;
-  color: var(--text);
-}
-.score-input__input::placeholder { color: var(--text-dim); opacity: 0.62; }

@@ -118,7 +118,7 @@ export function RouteCard({
             aria-controls={detailsId}
             onClick={() => setOpen((value) => !value)}
           >
-            {open ? '理由を閉じる' : 'WHY THIS ROUTE? — 理由を見る'}
+            {open ? '理由を閉じる' : '理由を見る'}
           </button>
           <div id={detailsId} className="route-card__reasons" hidden={!open}>
             <ul>

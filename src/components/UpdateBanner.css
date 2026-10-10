@@ -14,11 +14,12 @@
   justify-content: space-between;
   gap: 0.5rem 0.75rem;
   min-width: 0;
-  padding: 0.55rem 0.7rem;
-  background: var(--surface-highlight);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  background: var(--surface-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 0.85rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-md);
+  animation: reveal var(--dur-slow) var(--ease-out);
 }
 
 .update-banner__text {
@@ -41,27 +42,26 @@
 .update-banner__dismiss {
   min-height: 2.75rem;
   padding: 0 1rem;
-  font-size: 0.78rem;
-  font-weight: 740;
-  border-radius: 999px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .update-banner__apply {
-  color: var(--accent);
-  background: var(--surface);
-  border: 1px solid var(--accent-soft);
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
 }
 
 .update-banner__dismiss {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
 }
 
 .update-banner__apply:focus-visible,
 .update-banner__dismiss:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }

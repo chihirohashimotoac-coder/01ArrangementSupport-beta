@@ -8,7 +8,7 @@
 
 .dartboard__svg {
   width: 100%;
-  max-width: min(100%, 30rem);
+  max-width: min(100%, 32rem);
   height: auto;
   display: block;
   /* タッチ時のダブルタップズーム・遅延クリックを避ける */
@@ -19,14 +19,14 @@
 .dartboard__backdrop {
   fill: var(--board-surround);
   stroke: var(--board-edge);
-  stroke-width: 3;
+  stroke-width: 2;
 }
 
 .dartboard__segment {
   stroke: var(--board-wire);
   stroke-width: 0.9;
   stroke-linejoin: round;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--dur-fast) ease-out, fill var(--dur-fast) ease-out;
 }
 
 .dartboard__svg[aria-disabled='false'] .dartboard__segment[role='button'] {
@@ -59,7 +59,7 @@
 
 .dartboard__segment[data-focused='true'] {
   fill: var(--focus-fill);
-  stroke: var(--focus-ring);
+  stroke: #ffe1a6;
   stroke-width: 4;
   paint-order: stroke;
 }
@@ -69,14 +69,14 @@
 }
 
 .dartboard__segment:focus-visible {
-  stroke: var(--focus-ring);
+  stroke: var(--highlight-stroke);
   stroke-width: 4;
   paint-order: stroke;
 }
 
 @media (hover: hover) {
   .dartboard__svg[aria-disabled='false'] .dartboard__segment[role='button']:hover {
-    stroke: var(--focus-ring);
+    stroke: var(--highlight-stroke);
     stroke-width: 2;
     paint-order: stroke;
   }
@@ -97,8 +97,10 @@
 
 .dartboard__numbers text {
   fill: var(--board-number);
-  font-size: 20px;
+  font-family: var(--font-sans);
+  font-size: 21px;
   font-weight: 700;
+  font-stretch: 84%;
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
@@ -107,19 +109,15 @@
 
 .dartboard__disabled-reason {
   margin: 0;
-  padding: 0.4rem 0.75rem;
-  border-radius: 0.5rem;
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  font-size: 0.85rem;
-  font-weight: 700;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-s);
+  background: var(--surface-alt);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
   text-align: center;
+  animation: reveal var(--dur-base) var(--ease-out);
 }
-
-.dartboard__svg {
-  filter: drop-shadow(0 18px 26px color-mix(in srgb, var(--background-deep) 44%, transparent));
-}
-.dartboard__backdrop { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 10%, transparent)); }
 
 /*
  * ナンバー（ウェッジ）単位で選ぶモード（v1.3.5）。
@@ -144,8 +142,8 @@
 
 .dartboard__wedge[data-selected='true'] {
   /* 選んだナンバーは、盤面の色の上からでも一目で分かる濃さにする。 */
-  fill: color-mix(in srgb, var(--accent) 34%, transparent);
-  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--highlight-fill) 62%, transparent);
+  stroke: var(--highlight-stroke);
   stroke-width: 4;
 }
 
@@ -154,14 +152,14 @@
 }
 
 .dartboard__wedge:focus-visible {
-  stroke: var(--focus-ring);
+  stroke: var(--highlight-stroke);
   stroke-width: 4;
 }
 
 @media (hover: hover) {
   .dartboard__svg[aria-disabled='false'] .dartboard__wedge:hover {
-    fill: color-mix(in srgb, var(--accent) 16%, transparent);
-    stroke: color-mix(in srgb, var(--accent) 60%, transparent);
+    fill: color-mix(in srgb, var(--highlight-fill) 30%, transparent);
+    stroke: color-mix(in srgb, var(--highlight-stroke) 70%, transparent);
   }
 }
 

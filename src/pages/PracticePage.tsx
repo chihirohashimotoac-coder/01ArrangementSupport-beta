@@ -690,7 +690,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
           {/* 1. 答え —— 残り点のすぐ下に、基準ルートと理由を置く。 */}
           {suggestion.mode === 'checkout' && standardRoute && (
             <section className="practice__routes" aria-label="推奨ルート">
-              <h2 className="practice__heading">STANDARD — 基準ルート</h2>
+              <h2 className="practice__heading">基準ルート</h2>
               <RouteCard
                 testId="standard-route"
                 badge="STANDARD"
@@ -716,7 +716,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
 
           {practicalLastDart && (
             <section className="practice__routes" aria-label="この条件での実戦推奨">
-              <h2 className="practice__heading">実戦推奨 — 最後の1本</h2>
+              <h2 className="practice__heading">最後の1本の実戦推奨</h2>
               <RouteCard
                 testId="practical-last-dart"
                 badge="実戦推奨"
@@ -735,7 +735,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
           {suggestion.mode === 'setup' && bestSetup && (
             <section className="practice__routes" aria-label="推奨セットアップ">
               <h2 className="practice__heading">
-                {practicalLastDart ? '基準例 — 従来のSETUP順位' : 'BEST — 次ラウンドの残しを作る'}
+                {practicalLastDart ? '基準例（従来の SETUP 順位）' : '次ラウンドの残しを作る'}
               </h2>
               <RouteCard
                 testId="standard-route"
@@ -769,7 +769,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
           {suggestion.mode === 'checkout' && nextVisitRoute && (
             <section className="practice__routes" aria-label="次ラウンドへの残し">
               <h2 className="practice__heading">
-                {practicalLastDart ? '基準例 — 従来のNEXT VISIT順位' : 'NEXT VISIT — 次ラウンドへ整える'}
+                {practicalLastDart ? '基準例（従来の NEXT VISIT 順位）' : '次ラウンドへ整える'}
               </h2>
               <RouteCard
                 testId="next-visit-route"
@@ -804,7 +804,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
 
           {/* 3. その他の候補 —— 通常はここまでスクロールしない前提の位置。 */}
           {suggestion.mode === 'checkout' && standardRoute && (
-            <section className="practice__routes" aria-label="その他のルート">
+            <section className="practice__routes practice__routes--others" aria-label="その他のルート">
               {myRoute && myRoute.key !== standardRoute.key && (
                 <>
                   <h2 className="practice__heading">MY ROUTE</h2>
@@ -860,7 +860,7 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
           )}
 
           {suggestion.mode === 'setup' && bestSetup && otherSetup.length > 0 && (
-            <section className="practice__routes" aria-label="その他のセットアップ候補">
+            <section className="practice__routes practice__routes--others" aria-label="その他のセットアップ候補">
               <h2 className="practice__heading">OTHER ROUTES</h2>
               {otherRoutesContext && <p className="practice__grade-note">{otherRoutesContext}</p>}
               <div className="practice__list" data-testid="setup-routes">

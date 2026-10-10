@@ -1,128 +1,181 @@
 /*
- * v1.2: 「残り点を入力したら、まず答えを見せる」ための縦並び。
+ * CHECKOUT / SETUP。v1.2「残り点を入力したら、まず答えを見せる」。
  *
- * LEFT 入力 → STANDARD / BEST → 理由 → 実際の着弾を入力 → 他の候補、の順。
- * 盤面（Recovery）は既定でたたみ、通常利用で答えの前を大きく占有させない。
+ * 狭い画面: LEFT 入力 → 答え（STANDARD / BEST）→ 実際の着弾を入力 → 他の候補、の 1 列。
+ * 広い画面: 入力を横長の 1 段にまとめ、その下を「答えと実戦入力」｜「他の候補」の 2 列にする。
+ * DOM の順序は変えないので、読み上げ順・スクロールの挙動は狭い画面と同じ。
  */
 .practice {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
 .practice__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  padding: 0.7rem 0.75rem 0.75rem;
+  border-radius: var(--radius-m);
 }
 
 .practice__darts-choice {
   min-width: 0;
-  margin: 0.65rem 0 0;
+  margin: 0;
   padding: 0;
   border: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .practice__darts-choice legend {
-  margin-bottom: 0.35rem;
-  font-size: 0.8rem;
+  float: left;
+  font-size: var(--text-sm);
   font-weight: 700;
+  color: var(--text);
 }
 
+/* 残り本数。ナビと同じセレクタースイッチ（凹んだ溝・選んだものが反転）。 */
 .practice__darts-buttons {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-s) + 3px);
+  box-shadow: var(--inset-well);
 }
 
 .practice__darts-buttons button {
   min-width: 0;
-  min-height: 2.75rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
-  color: var(--text);
-  background: var(--chip);
-  font: inherit;
+  min-height: var(--tap);
+  font-size: var(--text-md);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .practice__darts-buttons button[aria-pressed='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.practice__darts-buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (hover: hover) {
+  .practice__darts-buttons button:not([aria-pressed='true']):not(:disabled):hover {
+    color: var(--text);
+    background: var(--surface-elevated);
+  }
 }
 
 .practice__darts-buttons button:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .practice__result {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
 /* 盤面をたたんでいるあいだの注意書き（ノーテン・TON の罠）。 */
 .practice__note {
   margin: 0;
-  padding: 0.6rem 0.7rem;
-  border-radius: 0.6rem;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-left: 3px solid var(--negative);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
   background: var(--warn-bg);
   color: var(--warn-fg);
-  font-size: 0.85rem;
-  line-height: 1.55;
+  font-size: var(--text-md);
+  line-height: 1.6;
 }
 
+/* 実戦入力（StatusBar → 盤面 → NEXT → 記録）。開いたときだけ現れる。 */
 .practice__board {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  animation: reveal var(--dur-base) var(--ease-out);
 }
 
 .practice__hint {
   margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: 1.55;
   color: var(--text-dim);
 }
 
 /* 「実際の着弾を入力」。答えの直後に置く、この画面の第 2 の主操作。 */
 .practice__recovery-toggle {
-  font-family: inherit;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.1rem;
+  min-height: 3.5rem;
+  padding: var(--space-2) 3.25rem var(--space-2) var(--space-4);
   text-align: left;
   color: var(--text);
-  background: var(--chip);
+  background: transparent;
   border: 1px solid var(--border-strong);
-  border-radius: 0.65rem;
-  min-height: 3.25rem;
-  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-m);
   cursor: pointer;
 }
 
+/* 開閉の記号。＋ = 盤面を開く / − = 閉じる。 */
+.practice__recovery-toggle::before,
+.practice__recovery-toggle::after {
+  content: '';
+  position: absolute;
+  right: 1.25rem;
+  top: 50%;
+  width: 0.875rem;
+  height: 1.5px;
+  background: currentColor;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.practice__recovery-toggle::after { transform: rotate(90deg); }
+.practice__recovery-toggle[aria-expanded='true']::after { transform: rotate(0deg); }
+
 .practice__recovery-toggle[aria-expanded='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+@media (hover: hover) {
+  .practice__recovery-toggle:hover { background: var(--surface); border-color: var(--text-dim); }
 }
 
 .practice__recovery-toggle:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 .practice__recovery-toggle-label {
-  font-size: 0.95rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--text-base);
+  font-weight: 700;
 }
 
 .practice__recovery-toggle-sub {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
   line-height: 1.4;
   color: var(--text-dim);
 }
@@ -130,157 +183,100 @@
 .practice__routes {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
+/* 区画の見出し。小さく、文として読める日本語で置く（大文字の飾りラベルにしない）。 */
 .practice__heading {
-  margin: 0.25rem 0 0;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--text-dim);
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--text-secondary);
 }
 
+/*
+ * 他の候補は、カードを積まずに 1 枚の表として罫線で区切る。
+ * 推奨度の札が右端で縦にそろい、上から比べて読める。
+ */
 .practice__list {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
 }
 
-.practice__more {
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text);
-  background: var(--chip);
-  border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
-  min-height: 2.75rem;
-  cursor: pointer;
+.practice__list > .route-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
+.practice__list > .route-card + .route-card { border-top: 1px solid var(--border); }
+
+/* 一覧の行では、推奨度の札をルートと同じ行の右端へ寄せ、1 行ぶん詰める。 */
+.practice__list > .route-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+}
+.practice__list > .route-card > * { grid-column: 1 / -1; }
+.practice__list > .route-card > .route-card__header { grid-column: 2; grid-row: 1; align-self: center; }
+.practice__list > .route-card > .route-card__darts { grid-column: 1; grid-row: 1; }
 
 .practice__more-group {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.practice__more {
+  flex: 1 1 12rem;
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .practice__more:hover { color: var(--text); border-color: var(--text-dim); }
 }
 
 .practice__more:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
+/* 未入力。次に何をすればよいかだけを示す。 */
 .practice__idle {
   margin: 0;
-  padding: 1rem;
+  padding: var(--space-5) var(--space-4);
   border: 1px dashed var(--border-strong);
-  border-radius: 0.75rem;
-  background: var(--surface);
-  color: var(--text-dim);
-  font-size: 0.9rem;
-  line-height: 1.6;
+  border-radius: var(--radius-m);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.7;
   text-align: center;
 }
 
 .practice__empty {
   margin: 0;
-  padding: 1rem;
-  border-radius: 0.75rem;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-left: 3px solid var(--negative);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
   background: var(--warn-bg);
   color: var(--warn-fg);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-/*
- * PC でも同じ「上から読む」順序を保つ。
- * 盤面はたたまれていて常時場所を取らないため、2 カラムで盤面を sticky にする
- * v1.1 のレイアウトはやめ、読みやすい幅の 1 カラムに寄せる。
- */
-@media (min-width: 60rem) {
-  .practice {
-    width: 100%;
-    max-width: 46rem;
-    margin: 0 auto;
-  }
-}
-
-/* v1.3 hierarchy: LEFT / STANDARD / BEST > Recovery / NEXT > secondary routes. */
-.practice { gap: 0.9rem; }
-.practice__controls {
-  position: relative;
-  overflow: hidden;
-  padding: 0.9rem;
-  background: linear-gradient(145deg, var(--surface-elevated), var(--surface));
-  border-color: var(--border-strong);
-  border-radius: 1rem;
-  box-shadow: var(--inner-highlight), var(--shadow-md);
-}
-.practice__controls::before {
-  content: '';
-  position: absolute;
-  width: 8rem;
-  height: 8rem;
-  right: -3rem;
-  top: -4rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  border-radius: 50%;
-  box-shadow: 0 0 0 1.1rem color-mix(in srgb, var(--accent) 4%, transparent),
-    0 0 0 2.4rem color-mix(in srgb, var(--accent) 3%, transparent);
-  pointer-events: none;
-}
-.practice__result { gap: 0.9rem; }
-.practice__note { border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); }
-.practice__board {
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
-}
-.practice__recovery-toggle {
-  position: relative;
-  padding: 0.7rem 3.25rem 0.7rem 0.9rem;
-  min-height: 3.75rem;
-  background: linear-gradient(135deg, var(--surface-elevated), var(--surface-alt));
-  border-color: var(--border-strong);
-  border-radius: 0.85rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
-}
-.practice__recovery-toggle::after {
-  content: '+';
-  position: absolute;
-  right: 0.85rem;
-  top: 50%;
-  translate: 0 -50%;
-  width: 2rem;
-  height: 2rem;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.practice__recovery-toggle[aria-expanded='true']::after { content: '−'; }
-.practice__recovery-toggle[aria-expanded='true'] { background: var(--surface-highlight); box-shadow: var(--inner-highlight); }
-.practice__recovery-toggle-label { color: var(--text); }
-.practice__heading {
-  margin-top: 0.4rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  color: var(--text-secondary);
-}
-.practice__heading::before { content: ''; display: inline-block; width: 1.25rem; height: 1px;
-  margin-right: 0.45rem; vertical-align: middle; background: var(--accent); }
-.practice__routes[aria-label='その他のルート'] { margin-top: 0.35rem; }
-.practice__routes[aria-label='その他のルート'] .practice__heading { color: var(--text-dim); }
-.practice__more { background: var(--surface); border-radius: 0.65rem; color: var(--text-secondary); }
-.practice__idle {
-  padding: 1.35rem;
-  background: color-mix(in srgb, var(--surface) 66%, transparent);
-  border-radius: 0.9rem;
-  color: var(--text-dim);
+  font-size: var(--text-md);
+  line-height: 1.65;
 }
 
 /*
@@ -292,11 +288,57 @@
  */
 .practice__tip {
   margin: 0;
-  padding: 0 0.25rem;
+  padding: 0 var(--space-1);
   color: var(--text-dim);
-  font-size: 0.78rem;
-  line-height: 1.55;
+  font-size: var(--text-xs);
+  line-height: 1.6;
   text-align: center;
-  opacity: 0.85;
 }
-.practice__grade-note { margin: 0; color: var(--text-secondary); font-size: 0.78rem; line-height: 1.5; }
+
+.practice__grade-note { margin: 0; color: var(--text-dim); font-size: var(--text-xs); line-height: 1.55; }
+
+/* --- 広い画面 ------------------------------------------------------------ */
+
+@media (min-width: 48rem) {
+  .practice__controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+    align-items: end;
+    column-gap: var(--space-5);
+    padding: var(--space-4);
+  }
+  .practice__darts-choice {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .practice__darts-choice legend { float: none; padding: 0; margin-bottom: var(--space-2); }
+  .practice__idle, .practice__tip { max-width: var(--reading-max); margin-inline: auto; width: 100%; }
+}
+
+/*
+ * 他の候補があるときだけ 2 列にする。右列（他の候補）は左列の全行にまたがり、
+ * 左列の要素は上から詰めて置く（最後の 1fr 行が残りの高さを吸収する）。
+ */
+@media (min-width: 64rem) {
+  .practice__result:has(> .practice__routes--others) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: repeat(10, auto) 1fr;
+    column-gap: var(--space-6);
+    row-gap: 0;
+    align-items: start;
+  }
+  .practice__result:has(> .practice__routes--others) > * {
+    grid-column: 1;
+    margin-bottom: var(--space-4);
+  }
+  .practice__result:has(> .practice__routes--others) > .practice__routes--others {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    margin-bottom: 0;
+  }
+  .practice__result:not(:has(> .practice__routes--others)) {
+    max-width: 40rem;
+    width: 100%;
+  }
+}
