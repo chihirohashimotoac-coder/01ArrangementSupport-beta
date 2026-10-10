@@ -10,129 +10,309 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: var(--space-4);
   padding: var(--app-gutter-top) var(--app-gutter-x) var(--app-gutter-bottom);
   padding-top: calc(var(--app-gutter-top) + var(--app-safe-top));
   padding-right: calc(var(--app-gutter-x) + var(--app-safe-right));
   padding-bottom: calc(var(--app-gutter-bottom) + var(--app-safe-bottom));
   padding-left: calc(var(--app-gutter-x) + var(--app-safe-left));
-  max-width: 78rem;
+  max-width: var(--content-max);
   margin: 0 auto;
 }
+
+/*
+ * ヘッダー = アプリ名 / モード / 設定。
+ * 狭い画面: 1 段目にアプリ名と設定、2 段目にモードの切り替えを横幅いっぱいで。
+ * 広い画面: 3 つを 1 行に並べ、縦の占有を減らす。
+ */
 .app__header {
-  position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between;
-  gap: 0.65rem; min-width: 0; min-height: 3.25rem; padding: 0.3rem 0.25rem;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'title settings'
+    'nav nav';
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
 }
+
 .app__title {
-  position: relative; font-size: clamp(0.84rem, 3.8vw, 1rem); font-weight: 760;
-  letter-spacing: 0.025em; color: var(--text); background: none; border: 0; min-width: 0; min-height: 2.75rem;
-  padding: 0.45rem 0.2rem 0.45rem 3.15rem; cursor: pointer; text-align: left; line-height: 1.25;
+  grid-area: title;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  min-height: var(--tap);
+  justify-self: start;
+  padding: 0 var(--space-1) 0 0;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.2;
 }
-.app__title::before {
-  content: '01'; position: absolute; inset: 50% auto auto 0; translate: 0 -50%; width: 2.4rem;
-  height: 2.4rem; display: grid; place-items: center; border: 1px solid var(--border-strong);
-  border-radius: 50%; color: var(--accent); background: radial-gradient(circle, transparent 46%,
-  var(--accent-soft) 47% 52%, transparent 53%), var(--surface); box-shadow: var(--inner-highlight),
-  var(--shadow-sm); font-size: 0.75rem; font-weight: 850; letter-spacing: 0.05em;
+/* 01 はスコアボードの数字札のように、反転した小さな札で示す。 */
+.app__mark {
+  flex: 0 0 auto;
+  margin-right: 0.35rem;
+  padding: 0.12rem 0.32rem 0.08rem;
+  border-radius: var(--radius-xs);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-size: 1rem;
+  font-weight: 800;
+  font-stretch: var(--stretch-numeral);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+.app__name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(0.875rem, 3.9vw, 1rem);
+  font-weight: 650;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Beta 版であることを示す小さな識別表示。Production と取り違えないためだけのもの。 */
 .app__channel {
-  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.35rem; vertical-align: 0.1em;
-  font-size: 0.6rem; font-weight: 850; letter-spacing: 0.08em; color: var(--accent);
-  border: 1px solid var(--border-strong); border-radius: 0.3rem;
-}
-.app__settings {
   flex: 0 0 auto;
-  font-size: 0.78rem; font-weight: 740; color: var(--text-secondary); background: var(--surface);
-  border: 1px solid var(--border-strong); border-radius: 999px; min-height: 2.75rem; padding: 0 1rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm); cursor: pointer;
+  margin-left: 0.45rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
 }
+
+.app__settings {
+  grid-area: settings;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+/* モードの切り替え。凹んだ溝の中で、選んだものだけが反転して浮く（セレクタースイッチ）。 */
 .app__nav {
-  position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.3rem; padding: 0.28rem; background: color-mix(in srgb, var(--surface) 84%, transparent);
-  border: 1px solid var(--border); border-radius: 0.85rem; box-shadow: var(--inner-highlight), var(--shadow-sm);
+  grid-area: nav;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  min-width: 0;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-s) + 3px);
+  box-shadow: var(--inset-well);
 }
 .app__nav button {
-  min-width: 0; min-height: 2.75rem; padding: 0 0.2rem; overflow: hidden;
-  font-size: clamp(0.64rem, 3vw, 0.78rem); font-weight: 780; letter-spacing: 0.055em;
-  text-overflow: ellipsis; color: var(--text-dim); background: transparent;
-  border: 1px solid transparent; border-radius: 0.62rem; cursor: pointer;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 0.15rem;
+  overflow: hidden;
+  font-size: clamp(0.6875rem, 3.3vw, 0.8125rem);
+  font-weight: 700;
+  font-stretch: 82%;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-s);
+  cursor: pointer;
 }
-.app__nav button[aria-pressed='true'], .app__settings[aria-pressed='true'] {
-  background: var(--surface-highlight); border-color: var(--border-strong); color: var(--accent);
-  box-shadow: var(--inner-highlight);
+.app__nav button[aria-pressed='true'] {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.app__settings[aria-pressed='true'] {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+@media (hover: hover) {
+  .app__nav button:not([aria-pressed='true']):hover { color: var(--text); background: var(--surface-elevated); }
+  .app__settings:not([aria-pressed='true']):hover { color: var(--text); border-color: var(--text-dim); }
+  .app__title:hover .app__name { color: var(--text-secondary); }
 }
 .app__nav button:focus-visible, .app__settings:focus-visible, .app__title:focus-visible {
-  outline: 3px solid var(--focus-ring); outline-offset: 2px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
-.app__main { position: relative; z-index: 0; flex: 1; }
-.app__footer { padding-top: 0.4rem; border-top: 1px solid var(--border); }
-.app__footer p { margin: 0; font-size: 0.68rem; line-height: 1.6; color: var(--text-dim); }
-.home { display: flex; flex-direction: column; gap: 1rem; }
+
+@media (min-width: 64rem) {
+  .app__header {
+    grid-template-columns: auto minmax(0, 34rem) auto;
+    grid-template-areas: 'title nav settings';
+    justify-content: space-between;
+    column-gap: var(--space-6);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.app__main { position: relative; z-index: 0; flex: 1; min-width: 0; }
+.app__footer { padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.app__footer p { margin: 0; font-size: var(--text-2xs); line-height: 1.6; color: var(--text-dim); }
+
+/* --- ホーム ---------------------------------------------------------------- */
+
+.home { display: flex; flex-direction: column; gap: var(--space-5); }
 .home__lead {
-  max-width: 44rem; margin: 0; padding: 0.2rem 0.25rem 0.4rem;
-  font-size: clamp(0.82rem, 3.1vw, 0.94rem); line-height: 1.75; color: var(--text-secondary);
+  max-width: 40rem;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  line-height: 1.8;
+  color: var(--text-secondary);
 }
-.home__modes { display: grid; gap: 0.75rem; }
-.home__modes button {
-  --mode-accent: var(--accent); position: relative; isolation: isolate; display: flex;
-  flex-direction: column; justify-content: flex-end; gap: 0.35rem; align-items: flex-start;
-  min-width: 0; min-height: 8.75rem; overflow: hidden; padding: 1.2rem; text-align: left;
-  color: var(--text); background: linear-gradient(145deg,
-  color-mix(in srgb, var(--surface-elevated) 92%, var(--mode-accent) 8%), var(--surface));
-  border: 1px solid color-mix(in srgb, var(--border-strong) 78%, var(--mode-accent) 22%);
-  border-radius: 1rem; box-shadow: var(--inner-highlight), var(--shadow-md); cursor: pointer;
-}
-.home__modes button:nth-child(2) { --mode-accent: #35c6c9; }
-.home__modes button:nth-child(3) { --mode-accent: #8e7eea; }
-.home__modes button:nth-child(4) { --mode-accent: #e8a33d; }
-.home__modes button::before {
-  content: ''; position: absolute; z-index: -1; width: 8.4rem; aspect-ratio: 1; top: -2.35rem;
-  right: -1.4rem; border: 1px solid color-mix(in srgb, var(--mode-accent) 34%, transparent);
-  border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 0.72rem,
-  color-mix(in srgb, var(--mode-accent) 12%, transparent) 0.75rem 0.8rem),
-  repeating-conic-gradient(from 8deg, transparent 0 16deg,
-  color-mix(in srgb, var(--mode-accent) 10%, transparent) 17deg 18deg); opacity: 0.85;
-}
-.home__modes button::after {
-  content: '↗'; position: absolute; right: 1rem; bottom: 1rem; width: 2.6rem; height: 2.6rem;
-  display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--mode-accent) 48%, var(--border));
-  border-radius: 50%; color: var(--mode-accent); background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
-  font-size: 1.2rem; box-shadow: var(--inner-highlight);
-}
-.home__modes button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
-@media (hover: hover) {
-  .home__modes button:hover { border-color: color-mix(in srgb, var(--mode-accent) 55%, var(--border-strong));
-    box-shadow: var(--inner-highlight), var(--shadow-lg); transform: translateY(-2px); }
-}
-.home__mode-label { position: relative; font-size: clamp(1.25rem, 6vw, 1.75rem); font-weight: 820;
-  line-height: 1; letter-spacing: 0.075em; }
-.home__mode-label::after { content: ''; display: block; width: 2.15rem; height: 2px; margin-top: 0.7rem;
-  background: var(--mode-accent); box-shadow: 0 0 12px color-mix(in srgb, var(--mode-accent) 45%, transparent); }
-.home__mode-sub { max-width: calc(100% - 3.5rem); font-size: 0.74rem; font-weight: 650;
-  line-height: 1.45; color: var(--text-secondary); }
-.home__points { margin: 0; padding: 0.9rem 1rem 0.9rem 2rem; display: flex; flex-direction: column;
-  gap: 0.45rem; background: color-mix(in srgb, var(--surface) 58%, transparent); border: 1px solid var(--border);
-  border-radius: 0.8rem; font-size: 0.77rem; line-height: 1.6; color: var(--text-dim); }
-@media (min-width: 40rem) {
-  .home__modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .home__modes button { min-height: 13rem; }
-}
+
 /*
-  トップページ下部の補助リンク。フッター直前に右寄せで置き、
-  狭い画面では折り返して 2 行になる（はみ出させない）。
-*/
+ * モードの一覧は、罫線で区切った 1 枚の表。
+ * 各行: モード名（大きく凝縮した字）/ 扱う範囲（等幅数字）/ 一言の説明。
+ */
+.home__modes {
+  display: grid;
+  border-top: 1px solid var(--border-strong);
+}
+.home__modes button {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label scope'
+    'sub sub';
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  min-width: 0;
+  padding: var(--space-4) var(--space-2) var(--space-4) var(--space-3);
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+/* 選べる行であることを、左端の細い札で示す。押した・指した行だけ明るくなる。 */
+.home__modes button::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--space-4);
+  bottom: var(--space-4);
+  width: 2px;
+  background: var(--border-strong);
+  transition: background-color var(--dur-base) var(--ease-out);
+}
+.home__mode-label {
+  grid-area: label;
+  font-size: clamp(1.75rem, 8.4vw, 2.25rem);
+  font-weight: 800;
+  font-stretch: 76%;
+  letter-spacing: 0.005em;
+  line-height: 1;
+}
+.home__mode-scope {
+  grid-area: scope;
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-stretch: 84%;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.home__mode-sub {
+  grid-area: sub;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+@media (hover: hover) {
+  .home__modes button:hover { background: var(--surface); }
+  .home__modes button:hover::before { background: var(--accent); }
+}
+.home__modes button:active::before { background: var(--accent); }
+.home__modes button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.home__points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+/*
+ * トップページ下部の補助リンク。フッター直前に右寄せで置き、
+ * 狭い画面では折り返して 2 行になる（はみ出させない）。
+ */
 .home__more {
-  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
-  gap: 0.45rem; padding: 0.15rem 0.25rem 0; min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 .home__history {
-  min-width: 0; min-height: 2.75rem; padding: 0 1.25rem; font-family: inherit;
-  font-size: 0.78rem; font-weight: 740; letter-spacing: 0.02em; color: var(--text-secondary);
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px;
-  box-shadow: var(--inner-highlight), var(--shadow-sm); cursor: pointer;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
 }
-.home__history:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.home__history:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (hover: hover) {
-  .home__history:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 48%, var(--border-strong)); }
+  .home__history:hover { color: var(--text); border-color: var(--border-strong); }
+}
+
+/* 広い画面: 4 モードを横一列の表にし、縦に長いだけのレイアウトを避ける。 */
+@media (min-width: 48rem) {
+  .home__modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home__modes button { padding: var(--space-5) var(--space-4) var(--space-5) var(--space-5); }
+  .home__modes button:nth-child(odd) { border-right: 1px solid var(--border); }
+  .home__points { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
+}
+@media (min-width: 64rem) {
+  .home { gap: var(--space-6); padding-top: var(--space-2); }
+  .home__lead { font-size: var(--text-base); }
+  .home__modes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .home__modes button {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas: 'label' 'sub' 'scope';
+    align-items: start;
+    min-height: 12rem;
+    padding: var(--space-5) var(--space-5) var(--space-5) var(--space-6);
+    border-right: 1px solid var(--border);
+  }
+  .home__modes button:last-child { border-right: 0; }
+  .home__modes button::before { top: var(--space-5); bottom: auto; height: 2.25rem; }
+  .home__mode-label { font-size: 2.25rem; }
+  .home__mode-scope { font-size: var(--text-xl); font-weight: 650; color: var(--text); }
 }

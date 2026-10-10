@@ -43,7 +43,6 @@ export function ReferencesPage({ onBack }: ReferencesPageProps) {
 
       <div className="references__head">
         <h2 className="references__title">参考資料・出典</h2>
-        <p className="references__subtitle">REFERENCES / SOURCES</p>
         <p className="references__lead">
           このアプリのアレンジ判断・ルートデータ・ルール設計が、何をもとにしているかの一覧です。
         </p>

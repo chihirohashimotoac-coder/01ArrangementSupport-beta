@@ -26,7 +26,7 @@ export function StatusBar({
 }: StatusBarProps) {
   const statusLabel = STATUS_LABEL[status];
   return (
-    <div className={`status-bar status-bar--${tone}`} data-testid="status-bar">
+    <div className={`status-bar status-bar--${tone}`} data-testid="status-bar" data-status={status}>
       <div className="status-bar__main">
         <div className="status-bar__left">
           <span className="status-bar__caption">LEFT</span>

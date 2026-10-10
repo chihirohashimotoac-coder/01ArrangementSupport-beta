@@ -1,63 +1,84 @@
 /*
  * 盤面のすぐ下に置く「いまの残り」と「次の狙い」。
  * スクロールせずに盤面と一緒に見えることが条件なので、高さを詰める。
+ * 「1投戻す」もここ（盤面から離れずに訂正できる位置）。
  */
 .next-target {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.6rem 0.7rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'status undo'
+    'body body';
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   background: var(--surface-alt);
-  border: 1px solid var(--border-strong);
-  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--inset-well);
 }
 
 .next-target__status {
+  grid-area: status;
   margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.3rem;
+  min-width: 0;
 }
 
 .next-target__number {
-  font-size: 1.8rem;
+  font-size: var(--text-3xl);
   font-weight: 800;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
+  font-stretch: 74%;
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1;
+  color: var(--text);
 }
 
 .next-target__number--small {
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
 }
 
 .next-target__unit {
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.08em;
   color: var(--text-dim);
 }
 
 .next-target__sep {
-  color: var(--text-dim);
-  margin: 0 0.15rem;
+  margin: 0 0.2rem;
+  color: var(--border-strong);
+}
+
+.next-target__route,
+.next-target__proposals,
+.next-target__message {
+  grid-area: body;
 }
 
 .next-target__route {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
 }
 
 .next-target__label {
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 0.25rem;
-  padding: 0.15rem 0.4rem;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-radius: var(--radius-xs);
+  padding: 0.3rem 0.4rem 0.25rem;
 }
 
 .next-target__darts {
@@ -67,78 +88,73 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--space-2);
 }
 
 .next-target__darts li {
-  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  font-size: var(--text-xl);
   font-weight: 800;
-  letter-spacing: 0.02em;
+  font-stretch: var(--stretch-numeral);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--text);
 }
 
 .next-target__darts li + li::before {
-  content: '→';
-  color: var(--text-dim);
-  font-weight: 700;
-  margin-right: 0.35rem;
+  content: '';
+  width: 0.38rem;
+  height: 0.38rem;
+  margin: 0 var(--space-2) 0 0;
+  border-top: 1.5px solid var(--text-dim);
+  border-right: 1.5px solid var(--text-dim);
+  transform: rotate(45deg);
 }
 
 .next-target__message {
   margin: 0;
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1.5;
-  color: var(--text-dim);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 
 .next-target__undo {
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
+  grid-area: undo;
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 650;
   color: var(--text);
-  background: var(--chip);
+  background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0 0.9rem;
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .next-target__undo:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .next-target__undo:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
-.next-target {
-  position: relative;
-  padding: 0.85rem;
-  overflow: hidden;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--surface-elevated) 92%, var(--accent) 8%), var(--surface-alt));
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
-  border-radius: 0.9rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
-}
-.next-target__number { font-size: 2rem; font-weight: 840; letter-spacing: -0.03em; }
-.next-target__number--small { font-size: 1.35rem; }
-.next-target__unit { color: var(--text-secondary); }
-.next-target__label { border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 999px; }
-.next-target__darts li { font-size: 1.12rem; color: var(--text); }
-.next-target__undo { align-self: flex-end; background: transparent; color: var(--text-secondary); }
-
 /*
  * 次ラウンドへの残しの候補（最大 3 件・v1.3.6）。
- * 盤面の下に置くので、1 件 1 行で「ルート / 残り / 選び方」を並べる。
+ * 1 件 1 行で「ルート / 残り / 選び方」を並べ、残りの数字を右端でそろえる。
  */
 .next-target__proposals {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
 }
 
 .next-target__proposals .next-target__label {
@@ -151,38 +167,37 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
 }
 
 .next-target__proposal-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  column-gap: 0.5rem;
+  column-gap: var(--space-2);
   row-gap: 0.1rem;
-  padding: 0.35rem 0.5rem;
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  padding: var(--space-2) 0;
 }
+.next-target__proposal-list li + li { border-top: 1px solid var(--border); }
 
 .next-target__proposal-route {
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 800;
-  letter-spacing: 0.02em;
+  font-stretch: var(--stretch-numeral);
+  color: var(--text);
 }
 
 .next-target__proposal-leave {
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 800;
+  font-stretch: var(--stretch-numeral);
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  color: var(--text);
   white-space: nowrap;
 }
 
 .next-target__proposal-note {
   grid-column: 1 / -1;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: 500;
   color: var(--text-dim);
 }

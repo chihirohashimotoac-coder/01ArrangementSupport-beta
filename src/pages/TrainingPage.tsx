@@ -354,7 +354,11 @@ export function TrainingPage() {
       </section>
 
       {question && (
-        <>
+        /*
+         * 出題中のまとまり。狭い画面では上から順に、広い画面では盤面を左、
+         * 状況・回答・採点を右に置く（TrainingPage.css）。DOM の順序は変えない。
+         */
+        <div className="training__stage">
           <StatusBar
             remaining={question.currentRemaining}
             dartsLeft={question.visitDartsAvailable}
@@ -431,35 +435,37 @@ export function TrainingPage() {
                 : '狙う場所を順にタップしてください（「そこへ刺さった」ではなく「そこを狙う」という回答です）。'}
           </p>
 
-          {usesNumberPicker ? (
-            <Dartboard
-              wedgeSelection={{
-                selected: answer[0]?.baseNumber ?? null,
-                onSelect: (aimNumber) => {
+          <div className="training__board">
+            {usesNumberPicker ? (
+              <Dartboard
+                wedgeSelection={{
+                  selected: answer[0]?.baseNumber ?? null,
+                  onSelect: (aimNumber) => {
+                    if (result !== null) return;
+                    setAnswer([requireDart(`${aimNumberPrefix}${aimNumber}`)]);
+                  },
+                  ariaLabelOf: (aimNumber) => `${aimNumber} を狙う`,
+                }}
+                disabled={result !== null}
+                disabledReason="採点済みです。"
+                ariaLabel="ダーツボード。狙うナンバーのエリアを 1 つ選んでください。"
+              />
+            ) : (
+              <Dartboard
+                onSelect={(segment) => {
                   if (result !== null) return;
-                  setAnswer([requireDart(`${aimNumberPrefix}${aimNumber}`)]);
-                },
-                ariaLabelOf: (aimNumber) => `${aimNumber} を狙う`,
-              }}
-              disabled={result !== null}
-              disabledReason="採点済みです。"
-              ariaLabel="ダーツボード。狙うナンバーのエリアを 1 つ選んでください。"
-            />
-          ) : (
-            <Dartboard
-              onSelect={(segment) => {
-                if (result !== null) return;
-                if (answer.length >= question.dartsAvailable) return;
-                setAnswer((current) => [...current, segment.dart]);
-              }}
-              highlightedDartIds={answer.map((dart) => dart.id)}
-              disabled={result !== null || answer.length >= question.dartsAvailable}
-              disabledReason={
-                result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'
-              }
-              ariaLabel="ダーツボード。狙う場所を順に選んでください。"
-            />
-          )}
+                  if (answer.length >= question.dartsAvailable) return;
+                  setAnswer((current) => [...current, segment.dart]);
+                }}
+                highlightedDartIds={answer.map((dart) => dart.id)}
+                disabled={result !== null || answer.length >= question.dartsAvailable}
+                disabledReason={
+                  result !== null ? '採点済みです。' : '本数を使い切りました。回答するか、戻してください。'
+                }
+                ariaLabel="ダーツボード。狙う場所を順に選んでください。"
+              />
+            )}
+          </div>
 
           <ol className="training__answer" aria-label="あなたの回答">
             {Array.from({ length: question.dartsAvailable }, (_, index) => (
@@ -603,7 +609,7 @@ export function TrainingPage() {
               次の問題
             </button>
           )}
-        </>
+        </div>
       )}
 
       {finished && (

@@ -57,8 +57,7 @@ export function SettingsPage({ theme, onThemeChange, onOpenAiLab }: SettingsPage
     <div className="settings">
       <section className="settings__section settings__section--theme">
         <div>
-          <h2>APPEARANCE</h2>
-          <p className="settings__section-title">テーマ</p>
+          <h2>テーマ</h2>
           <p className="settings__note">利用環境に合わせて画面の明るさを選べます。</p>
         </div>
         <div className="settings__theme" role="radiogroup" aria-label="カラーテーマ">
@@ -84,7 +83,7 @@ export function SettingsPage({ theme, onThemeChange, onOpenAiLab }: SettingsPage
       </section>
 
       <section className="settings__section">
-        <h2>MY ROUTE — 得意ダブル</h2>
+        <h2>得意ダブル（MY ROUTE）</h2>
         <p className="settings__note">
           得意なダブルを選ぶと、MY ROUTE の候補がその上がりを優先します。
         </p>
@@ -159,7 +158,7 @@ export function SettingsPage({ theme, onThemeChange, onOpenAiLab }: SettingsPage
 
       {onOpenAiLab && (
         <section className="settings__section" data-testid="developer-section">
-          <h2>DEVELOPER</h2>
+          <h2>開発者向け</h2>
           <p className="settings__note">
             開発者向けのビルド（Developer Gate）でだけ表示されます。ローカル AI モデルの比較評価に使います。
           </p>
