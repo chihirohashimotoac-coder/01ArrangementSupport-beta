@@ -1,21 +1,23 @@
 /*
  * SIMULATION の画面。
  *
- * 既存モード（PracticePage / TrainingPage）と同じ表現を使う。
- * スマートフォン縦画面での片手操作を最優先にし、
- * 盤面を大きく、LEFT と ROUND / DART をその上に置く。
+ * スマートフォン縦画面での片手操作を最優先にし、盤面を大きく、
+ * LEFT と ROUND / DART をその上に置く。広い画面では盤面を左に固定し、
+ * 右列で残り点・投擲・得点の入力を読む（視線を盤面から大きく外さない）。
  */
 .simulation {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
 .simulation__lead {
   margin: 0;
+  max-width: var(--reading-max);
   color: var(--text-secondary);
-  font-size: 0.86rem;
-  line-height: 1.65;
+  font-size: var(--text-md);
+  line-height: 1.75;
 }
 
 .simulation__settings,
@@ -23,159 +25,207 @@
 .simulation__review {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-4);
   min-width: 0;
 }
 
+/* --- 設定 ----------------------------------------------------------------- */
+
 .simulation__field {
-  margin: 0;
-  padding: 0.75rem 0.8rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 0.85rem;
-  background: var(--surface);
-  box-shadow: var(--inner-highlight);
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--space-3);
   min-width: 0;
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
 }
 
 .simulation__field legend {
-  padding: 0 0.35rem;
-  color: var(--text-secondary);
-  font-size: 0.74rem;
-  font-weight: 760;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  float: left;
+  width: 100%;
+  margin-bottom: var(--space-1);
+  padding: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
 }
 
+/* 選択肢。ナビと同じセレクタースイッチ（凹んだ溝・選んだものが反転）。 */
 .simulation__choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-s) + 3px);
+  box-shadow: var(--inset-well);
 }
 
 .simulation__choices button {
-  flex: 1 1 5.5rem;
-  min-height: 2.9rem;
+  flex: 1 1 5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.1rem;
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.6rem;
-  background: var(--chip);
+  min-height: 3rem;
+  padding: var(--space-2);
   color: var(--text);
-  font-size: 0.88rem;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-s);
+  font-size: var(--text-md);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
+.simulation__choices button > span { font-stretch: 90%; }
+
 .simulation__choices button small {
   color: var(--text-dim);
-  font-size: 0.66rem;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1.35;
   text-align: center;
 }
 
 .simulation__choices button[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 
 .simulation__choices button[aria-pressed='true'] small {
-  color: var(--accent);
+  color: var(--accent-contrast);
+  opacity: 0.78;
+}
+
+@media (hover: hover) {
+  .simulation__choices button:not([aria-pressed='true']):hover { background: var(--surface-elevated); }
 }
 
 .simulation__custom {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.76rem;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
 .simulation__custom input {
-  min-height: 2.9rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.6rem;
+  min-height: 3rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
   background: var(--surface-alt);
+  box-shadow: var(--inset-well);
   color: var(--text);
-  font-size: 1.15rem;
-  font-weight: 760;
+  font-size: var(--text-xl);
+  font-weight: 800;
+  font-stretch: var(--stretch-numeral);
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__slider {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--space-1);
 }
 
 .simulation__slider > span {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: var(--space-2);
   color: var(--text-secondary);
-  font-size: 0.74rem;
-  font-weight: 740;
-  letter-spacing: 0.05em;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.04em;
 }
 
 .simulation__slider strong {
   color: var(--text);
-  font-size: 1.3rem;
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-stretch: var(--stretch-numeral);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .simulation__slider input[type='range'] {
   width: 100%;
-  min-height: 2.25rem;
-  accent-color: var(--accent);
+  min-height: var(--tap);
+  accent-color: var(--text);
 }
 
 .simulation__hint {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.72rem;
-  line-height: 1.6;
+  font-size: var(--text-xs);
+  line-height: 1.65;
 }
 
 /*
  * 設定の説明は折りたたみで置く。初見のユーザーが意味を確かめられるようにしつつ、
- * 設定画面そのものは短いままにする。
+ * 設定画面そのものは短いままにする。振り返りの各区画も同じ枠を使う。
  */
 .simulation__help {
+  min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--surface-alt);
-  font-size: 0.74rem;
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  font-size: var(--text-sm);
   line-height: 1.7;
 }
 
+.simulation__field .simulation__help {
+  border-radius: var(--radius-s);
+  background: transparent;
+}
+
 .simulation__help > summary {
-  padding: 0.55rem 0.7rem;
-  color: var(--text-secondary);
-  font-weight: 740;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  /* タップ領域は 44px 以上（docs/SPEC.md §7）。 */
-  min-height: 2.75rem;
   display: flex;
   align-items: center;
+  gap: var(--space-2);
+  /* タップ領域は 44px 以上（docs/SPEC.md §7）。 */
+  min-height: var(--tap);
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
 }
+.simulation__help > summary::-webkit-details-marker { display: none; }
+.simulation__help > summary::after {
+  content: '';
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-left: auto;
+  margin-right: 0.2rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-0.1rem) rotate(45deg);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.simulation__help[open] > summary::after { transform: translateY(0.1rem) rotate(-135deg); }
+.simulation__help > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+@media (hover: hover) {
+  .simulation__help > summary:hover { color: var(--text); }
+}
+
 .simulation__section-heading {
   margin: 0;
-  padding: 0.55rem 0.7rem;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 740;
+  padding: var(--space-3) var(--space-3);
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 700;
   border-bottom: 1px solid var(--border);
 }
 
@@ -186,27 +236,27 @@
 .simulation__help-list {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.25rem 0.6rem;
+  gap: var(--space-1) var(--space-3);
   margin: 0;
-  padding: 0.6rem 0.7rem 0;
+  padding: var(--space-3) var(--space-3) 0;
 }
 
 .simulation__help-list dt {
   color: var(--text);
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .simulation__help-list dd {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
 /* 用語が長いものは 1 列に積む（幅 320px でも用語と説明が潰れない）。 */
 .simulation__help-list--stacked {
   grid-template-columns: minmax(0, 1fr);
   gap: 0.1rem;
-  padding-bottom: 0.7rem;
+  padding-bottom: var(--space-3);
 }
 
 .simulation__help-list--stacked dt {
@@ -214,13 +264,13 @@
 }
 
 .simulation__help-list--stacked dd + dt {
-  margin-top: 0.45rem;
+  margin-top: var(--space-2);
 }
 
 .simulation__help-criterion {
   margin: 0;
-  padding: 0.6rem 0.7rem;
-  color: var(--text-dim);
+  padding: var(--space-3);
+  color: var(--text-secondary);
 }
 
 .simulation__help-criterion strong {
@@ -228,47 +278,57 @@
 }
 
 .simulation__help-rows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
   margin: 0;
-  padding: 0 0.7rem 0.7rem;
+  padding: 0 var(--space-3) var(--space-3);
   list-style: none;
 }
 
 .simulation__help-rows li {
   display: flex;
   align-items: baseline;
-  gap: 0.35rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__help-rows strong {
+  min-width: 2.5rem;
   color: var(--text);
+  font-size: var(--text-md);
+  font-stretch: var(--stretch-numeral);
 }
 
+/* 主操作。チョーク色の面で反転させる。 */
 .simulation__start {
   min-height: 3.25rem;
-  border: 0;
-  border-radius: 0.8rem;
-  background: var(--accent);
+  padding: 0 var(--space-5);
   color: var(--accent-contrast);
-  font-size: 1rem;
-  font-weight: 820;
-  letter-spacing: 0.04em;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-s);
+  font-size: var(--text-base);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
 }
+
+@media (hover: hover) {
+  .simulation__start:hover { background: var(--accent-hover); }
+}
+
+/* --- プレイ中 ------------------------------------------------------------- */
 
 .simulation__progress {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 720;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  font-stretch: var(--stretch-label);
   letter-spacing: 0.03em;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -281,100 +341,107 @@
 .simulation__board-area {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: var(--space-2);
   min-width: 0;
 }
 
 .simulation__last {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: stretch;
+  gap: var(--space-2);
   width: 100%;
-  max-width: 30rem;
+  max-width: 32rem;
   margin: 0 auto;
 }
 
 .simulation__last-throw {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 2.75rem;
+  min-height: var(--tap);
   margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 0.55rem;
+  align-content: center;
+  column-gap: var(--space-3);
   row-gap: 0.1rem;
-  padding: 0.35rem 0.6rem;
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-alt);
   border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--surface);
+  border-radius: var(--radius-s);
+  box-shadow: var(--inset-well);
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__last-empty {
   color: var(--text-dim);
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
 .simulation__last-caption {
   color: var(--text-dim);
-  font-size: 0.7rem;
-  font-weight: 740;
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
 .simulation__last-aim {
   color: var(--text);
-  font-size: 1.05rem;
-  font-weight: 820;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  font-stretch: var(--stretch-label);
 }
 
 .simulation__last-hit {
   color: var(--text-secondary);
-  font-size: 0.86rem;
-  font-weight: 720;
+  font-size: var(--text-md);
+  font-weight: 650;
+  font-stretch: var(--stretch-label);
 }
 
 /* タップ領域は 44px 以上（docs/SPEC.md §7）。 */
 .simulation__undo {
   flex: 0 0 auto;
-  min-height: 2.75rem;
+  min-height: var(--tap);
   min-width: 5.5rem;
-  padding: 0 0.8rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.6rem;
-  background: var(--surface-alt);
+  padding: 0 var(--space-3);
   color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 780;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  font-size: var(--text-sm);
+  font-weight: 650;
   cursor: pointer;
 }
 
 .simulation__undo:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
+/* このラウンドの投擲。得点は出さない（暗算のため）。 */
 .simulation__throws {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
 }
 
 .simulation__throws li {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.45rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   background: var(--surface);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
+  animation: reveal var(--dur-base) var(--ease-out);
 }
+.simulation__throws li + li { border-top: 1px solid var(--border); }
 
 /* 1 投目の前は空。案内は盤面直後の「直前の 1 投」欄に出す。 */
 .simulation__throws:empty {
@@ -383,8 +450,9 @@
 
 .simulation__throw-dart {
   min-width: 1.8rem;
-  color: var(--accent);
-  font-weight: 800;
+  color: var(--text-dim);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .simulation__throw-aim {
@@ -393,38 +461,41 @@
 
 .simulation__throw-hit {
   color: var(--text);
-  font-weight: 720;
+  font-weight: 700;
 }
 
 /* BUST / CHECKOUT だけを示す。得点は出さない（暗算のため）。 */
 .simulation__throw-flag {
   margin-left: auto;
-  font-size: 0.72rem;
-  font-weight: 820;
-  letter-spacing: 0.04em;
-  color: var(--accent);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
 }
 
 .simulation__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .simulation__actions button {
   flex: 1 1 auto;
-  min-height: 3rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.7rem;
-  background: var(--surface-alt);
+  min-height: var(--tap);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: transparent;
   color: var(--text);
-  font-size: 0.9rem;
-  font-weight: 760;
+  font-size: var(--text-sm);
+  font-weight: 600;
   cursor: pointer;
 }
 
 .simulation__actions button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -434,22 +505,23 @@
   color: var(--text-dim);
 }
 
+/* 3 投の合計の入力。盤面の操作が終わった時点で現れる、このラウンドの主操作。 */
 .simulation__entry {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.85rem 0.8rem;
+  gap: var(--space-2);
+  padding: var(--space-4);
   border: 1px solid var(--border-strong);
-  border-radius: 0.85rem;
+  border-radius: var(--radius-m);
   background: var(--surface-elevated);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--inner-highlight), var(--shadow-md);
+  animation: reveal var(--dur-slow) var(--ease-out);
 }
 
 .simulation__entry-title {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 820;
-  letter-spacing: 0.02em;
+  font-size: var(--text-lg);
+  font-weight: 750;
 }
 
 .simulation__entry-title--ok {
@@ -463,150 +535,191 @@
 .simulation__entry-note {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.82rem;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: 1.65;
 }
 
 .simulation__entry-field {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .simulation__entry-field input {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 3.25rem;
-  padding: 0.3rem 0.7rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.7rem;
+  min-height: 3.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
   background: var(--surface-alt);
+  box-shadow: var(--inset-well);
   color: var(--text);
-  font-size: 1.85rem;
-  font-weight: 820;
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  font-stretch: 74%;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  caret-color: var(--text);
+}
+
+.simulation__entry-field input:focus-visible {
+  outline: none;
+  border-color: var(--text);
+  box-shadow: var(--inset-well), 0 0 0 1px var(--text);
 }
 
 .simulation__entry-field button,
 .simulation__entry button {
   min-height: 3.25rem;
-  padding: 0 1.1rem;
-  border: 0;
-  border-radius: 0.7rem;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-s);
   background: var(--accent);
   color: var(--accent-contrast);
-  font-size: 0.95rem;
-  font-weight: 800;
+  font-size: var(--text-base);
+  font-weight: 750;
   cursor: pointer;
+}
+
+.simulation__entry-field button {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+  min-height: 3.75rem;
+  white-space: nowrap;
 }
 
 .simulation__entry-undo {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.72rem;
-  line-height: 1.55;
+  font-size: var(--text-xs);
+  line-height: 1.6;
 }
 
 .simulation__entry button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-/* --- GAME REVIEW ------------------------------------------------------- */
+/* --- 振り返り ------------------------------------------------------------- */
 
 .simulation__review-title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 820;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xl);
+  font-weight: 750;
 }
 
 .simulation__review-status {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  font-weight: 740;
-  line-height: 1.55;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.6;
 }
 
 .simulation__review-status[data-abandoned='true'] {
   color: var(--warn-fg);
 }
 
+/* 結果と主要な記録。計器の読み取り値として罫線で区切る。 */
 .simulation__result {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.75rem 0.8rem;
+  gap: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border-strong);
-  border-radius: 0.85rem;
+  border-radius: var(--radius-m);
   background: var(--surface-elevated);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--inner-highlight), var(--shadow-md);
 }
 
 .simulation__review-status strong,
 .simulation__result-checkout strong,
 .simulation__result-sub strong {
   color: var(--text);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__result-checkout {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .simulation__result-sub {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.74rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
+.simulation__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
+.simulation__summary > div {
+  padding: var(--space-3) var(--space-3) var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.simulation__summary > div:nth-child(even) { padding-left: var(--space-3); border-left: 1px solid var(--border); }
+
+.simulation__summary dt {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.simulation__summary dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-stretch: var(--stretch-numeral);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/*
+ * 判定の区別：良い判断（緑）/ 見直し候補（黄）/ 明確な誤り（赤）/ 対象外（無彩色）。
+ * 区画の左端の色帯と、判定名の札（文字）の両方で示す。
+ */
 .simulation__highlight {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.65rem 0.75rem;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
-  border-left-width: 4px;
-  border-radius: 0.75rem;
+  border-left: 4px solid var(--border-strong);
+  border-radius: 0 var(--radius-m) var(--radius-m) 0;
   background: var(--surface);
 }
 
-.simulation__highlight[data-tone='good'] {
-  border-left-color: var(--grade-s-fg);
-}
-
-.simulation__highlight[data-tone='warn'] {
-  border-left-color: var(--grade-b-fg);
-}
-
-.simulation__highlight[data-tone='bad'] {
-  border-left-color: var(--grade-c-fg);
-}
+.simulation__highlight[data-tone='good'] { border-left-color: var(--grade-s-fg); }
+.simulation__highlight[data-tone='warn'] { border-left-color: var(--grade-b-fg); }
+.simulation__highlight[data-tone='bad'] { border-left-color: var(--grade-c-fg); }
 
 .simulation__highlight h3 {
   margin: 0;
-  font-size: 0.8rem;
-  font-weight: 820;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text);
 }
 
 .simulation__highlight-empty {
   margin: 0;
-  color: var(--text-dim);
-  font-size: 0.8rem;
-  line-height: 1.6;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.65;
 }
 
 .simulation__focus {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -615,8 +728,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.35rem 0.5rem;
-  font-size: 0.76rem;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -630,26 +743,26 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.15rem 0.6rem;
-  font-size: 0.9rem;
-  font-weight: 760;
+  gap: 0.15rem var(--space-3);
+  font-size: var(--text-base);
+  font-weight: 700;
 }
 
 .simulation__focus-hit {
   color: var(--text-dim);
-  font-size: 0.74rem;
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .simulation__focus-alt {
-  margin: 0;
-  padding: 0.35rem 0.55rem;
-  border-radius: 0.5rem;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-s);
   background: var(--surface-alt);
   color: var(--text);
-  font-size: 0.8rem;
-  font-weight: 720;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.6;
 }
 
 .simulation__focus-alt p {
@@ -657,10 +770,10 @@
 }
 
 /* アプリの第 1 案は参考情報。振り返りの代案（改善案）より控えめに見せる。 */
-.simulation__focus-app {
-  margin-top: 0.2rem;
+.simulation__focus-alt .simulation__focus-app {
+  margin-top: var(--space-1);
   color: var(--text-dim);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .simulation__focus-list {
@@ -668,89 +781,83 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0;
 }
 
 .simulation__focus-list > li {
-  padding: 0.5rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
-  background: var(--surface);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
 }
+.simulation__focus-list > li:last-child { border-bottom: 0; }
 
+/* 次のゲームで意識すること。振り返りの結論なので、反転した札で見出しを付ける。 */
 .simulation__next-focus {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 0.75rem;
-  background: var(--accent-soft);
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
   color: var(--text);
-  font-size: 0.86rem;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: 1.7;
 }
 
 .simulation__next-focus strong {
-  color: var(--accent);
-  font-size: 0.74rem;
-  letter-spacing: 0.04em;
+  padding: 0.25rem 0.4rem 0.2rem;
+  border-radius: var(--radius-xs);
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .simulation__review-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .simulation__review-actions > button {
-  flex: 1 1 10rem;
+  flex: 1 1 14rem;
+  white-space: nowrap;
 }
 
 .simulation__secondary {
   min-height: 3.25rem;
+  padding: 0 var(--space-5);
   border: 1px solid var(--border-strong);
-  border-radius: 0.8rem;
-  background: var(--surface-alt);
+  border-radius: var(--radius-s);
+  background: transparent;
   color: var(--text);
-  font-size: 0.95rem;
-  font-weight: 780;
+  font-size: var(--text-base);
+  font-weight: 650;
   cursor: pointer;
+}
+
+@media (hover: hover) {
+  .simulation__secondary:hover { border-color: var(--text-dim); }
+}
+
+.simulation__start:focus-visible,
+.simulation__secondary:focus-visible,
+.simulation__undo:focus-visible,
+.simulation__actions button:focus-visible,
+.simulation__entry button:focus-visible,
+.simulation__choices button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .simulation__detail-body {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.6rem 0.7rem 0.7rem;
-}
-
-.simulation__summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
-  gap: 0.45rem;
-  margin: 0;
-}
-
-.simulation__summary > div {
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--surface);
-}
-
-.simulation__summary dt {
-  color: var(--text-dim);
-  font-size: 0.66rem;
-  font-weight: 740;
-  letter-spacing: 0.05em;
-}
-
-.simulation__summary dd {
-  margin: 0.15rem 0 0;
-  font-size: 1.15rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
+  gap: var(--space-3);
+  padding: var(--space-3);
 }
 
 .simulation__verdict-counts {
@@ -759,18 +866,23 @@
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: var(--space-2);
 }
 
 .simulation__verdict-counts li {
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.35rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 760;
-  letter-spacing: 0.03em;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.simulation__verdict-counts li strong {
+  font-size: var(--text-md);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .simulation__verdict-counts li[data-tone='good'],
@@ -797,15 +909,15 @@
 .simulation__verdict-counts li[data-tone='plain'],
 .simulation__review-throws li[data-tone='plain'] .simulation__review-verdict,
 .simulation__review [data-tone='plain'] > .simulation__focus .simulation__review-verdict {
-  background: var(--chip);
-  color: var(--text-dim);
+  background: var(--surface-alt);
+  color: var(--text-secondary);
 }
 
 .simulation__review-note {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.74rem;
-  line-height: 1.6;
+  font-size: var(--text-xs);
+  line-height: 1.65;
 }
 
 .simulation__rounds {
@@ -814,46 +926,43 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-}
-
-.simulation__round {
-  padding: 0.65rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 0.8rem;
-  background: var(--surface);
+  gap: var(--space-4);
 }
 
 .simulation__round h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.5rem;
-  margin: 0 0 0.45rem;
-  font-size: 0.82rem;
-  font-weight: 820;
-  letter-spacing: 0.05em;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: var(--text-md);
+  font-weight: 700;
 }
 
 .simulation__round-left {
-  color: var(--accent);
+  color: var(--text-secondary);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__round-scored {
   margin-left: auto;
-  color: var(--text-secondary);
+  font-size: var(--text-lg);
+  font-weight: 800;
+  font-stretch: var(--stretch-numeral);
   font-variant-numeric: tabular-nums;
 }
 
 .simulation__round-miss {
-  margin: 0 0 0.45rem;
-  padding: 0.35rem 0.55rem;
-  border-radius: 0.5rem;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
   background: var(--warn-bg);
   color: var(--warn-fg);
-  font-size: 0.75rem;
-  font-weight: 740;
+  font-size: var(--text-xs);
+  font-weight: 650;
 }
 
 .simulation__review-throws {
@@ -862,27 +971,28 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
 }
 
 .simulation__review-throws li {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
-  background: var(--surface-alt);
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-strong);
 }
+.simulation__review-throws li + li { margin-top: var(--space-1); }
+.simulation__review-throws li[data-tone='good'] { border-left-color: var(--grade-s-fg); }
+.simulation__review-throws li[data-tone='warn'] { border-left-color: var(--grade-b-fg); }
+.simulation__review-throws li[data-tone='bad'] { border-left-color: var(--grade-c-fg); }
 
 .simulation__review-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.45rem;
-  font-size: 0.74rem;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
 }
 
 .simulation__review-dart {
-  font-weight: 800;
-  color: var(--accent);
+  font-weight: 700;
+  color: var(--text);
 }
 
 .simulation__review-left {
@@ -892,59 +1002,85 @@
 
 .simulation__review-verdict {
   margin-left: auto;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .simulation__review-aim {
-  margin: 0.3rem 0 0;
-  font-size: 0.82rem;
-  font-weight: 700;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  font-weight: 650;
 }
 
 .simulation__review-explain {
-  margin: 0.25rem 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-secondary);
-  font-size: 0.76rem;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: 1.65;
 }
 
-/* --- 広い画面 ---------------------------------------------------------- */
+/* --- 広い画面 ------------------------------------------------------------- */
 
 @media (min-width: 48rem) {
+  /* 左列: 開始点数・ブレ方向・最大ブレ ／ 右列: プレイヤー能力（縦に長いので通しで置く）。 */
+  .simulation__settings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      'lead lead'
+      'start ability'
+      'direction ability'
+      'maxmiss ability'
+      '. go';
+    grid-template-rows: auto auto auto 1fr auto;
+    align-items: start;
+    gap: var(--space-4);
+  }
+  .simulation__lead { grid-area: lead; }
+  .simulation__field:nth-of-type(1) { grid-area: start; }
+  .simulation__field:nth-of-type(2) { grid-area: ability; }
+  .simulation__field:nth-of-type(3) { grid-area: direction; }
+  .simulation__field:nth-of-type(4) { grid-area: maxmiss; }
+  .simulation__settings > .simulation__start { grid-area: go; }
+  .simulation__summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .simulation__summary > div { padding-left: var(--space-3); border-left: 1px solid var(--border); }
+  .simulation__summary > div:first-child { padding-left: 0; border-left: 0; }
+}
+
+/*
+ * プレイ中は盤面を左列の全行にまたがらせ、右列は上から詰める
+ * （最後の 1fr 行が残りの高さを吸収する）。得点の入力は中断より上に置く。
+ */
+@media (min-width: 64rem) {
   .simulation__play {
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    grid-template-areas:
-      'status status'
-      'board progress'
-      'board throws'
-      'board actions'
-      'board entry';
-    align-content: start;
-    column-gap: 1rem;
+    grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+    grid-template-rows: repeat(5, auto) 1fr;
+    column-gap: var(--space-7);
+    row-gap: 0;
+    align-items: start;
   }
+  .simulation__play > * { grid-column: 2; margin-bottom: var(--space-3); }
+  .simulation__play > .simulation__board-area {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    margin-bottom: 0;
+  }
+  .simulation__play > .simulation__entry { order: 1; }
+  .simulation__play > .simulation__actions { order: 2; }
 
-  .simulation__play > :first-child {
-    grid-area: status;
+  .simulation__review {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-6);
+    row-gap: var(--space-4);
+    align-items: start;
   }
-  .simulation__progress {
-    grid-area: progress;
-  }
-  .simulation__board-area {
-    grid-area: board;
-    align-self: start;
-  }
-  .simulation__throws {
-    grid-area: throws;
-  }
-  .simulation__actions {
-    grid-area: actions;
-  }
-  .simulation__entry {
-    grid-area: entry;
-  }
+  .simulation__review > * { grid-column: 1 / -1; }
+  /* 良かった判断｜改善ポイントを横に並べて見比べる。 */
+  .simulation__review > .simulation__highlight { grid-column: 1; }
+  .simulation__review > .simulation__highlight + .simulation__highlight { grid-column: 2; }
 }
