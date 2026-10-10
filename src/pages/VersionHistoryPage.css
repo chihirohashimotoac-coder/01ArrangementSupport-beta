@@ -29,20 +29,25 @@
   font-size: 0.76rem;
   font-weight: 740;
   color: var(--text-secondary);
-  background: var(--surface-elevated);
+  background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
 .version-history__back::before {
-  content: '←';
-  margin-right: 0.35rem;
+  content: '';
+  display: inline-block;
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-right: 0.5rem;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-0.05rem) rotate(45deg);
 }
 
 .version-history__back:focus-visible {
-  outline: 3px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -83,10 +88,9 @@
   gap: 0.45rem;
   min-width: 0;
   padding: 0.9rem;
-  background: linear-gradient(145deg, var(--surface-elevated), var(--surface));
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: var(--inner-highlight), var(--shadow-sm);
+  border-radius: var(--radius-m);
 }
 
 .version-history__item:first-child {
@@ -117,10 +121,10 @@
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
-  border-radius: 999px;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
 }
 
 .version-history__date {
