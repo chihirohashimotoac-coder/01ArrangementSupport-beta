@@ -1084,3 +1084,27 @@
   .simulation__review > .simulation__highlight { grid-column: 1; }
   .simulation__review > .simulation__highlight + .simulation__highlight { grid-column: 2; }
 }
+
+/* --- 上がったゲームの題字（キネティックタイポグラフィ） ------------------- */
+.simulation__gameshot {
+  overflow: hidden;
+  padding: var(--space-2) 0;
+  font-size: clamp(2.5rem, 13vw, 4.5rem);
+  font-weight: 900;
+  font-stretch: 68%;
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+  color: var(--grade-s-fg);
+}
+.simulation__gameshot .kinetic__char { animation-duration: 900ms; }
+/* 題字の下を、左から細い線が走る。 */
+.simulation__gameshot::after {
+  content: '';
+  display: block;
+  height: 2px;
+  margin-top: var(--space-2);
+  background: currentColor;
+  transform-origin: left;
+  animation: meter-grow 900ms var(--ease-out-expo) 500ms both;
+}
+.simulation .stacked-bar { margin: var(--space-2) 0; }

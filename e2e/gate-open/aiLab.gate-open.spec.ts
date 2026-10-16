@@ -104,6 +104,7 @@ test('ページの起動だけではモデルも Lab も WebLLM も読まず、�
 test('設定画面に Lab の入口があり、開くと Lab だけを遅延読み込みする（WebLLM・モデルは読まない）', async ({ page }) => {
   const traffic = await watchTraffic(page);
   await page.goto('./');
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('developer-section')).toBeVisible();
   expect(loaded(traffic, LAB_CHUNK)).toBe(false);
@@ -139,6 +140,7 @@ test('モデルを選んでも、確認して「ダウンロードを開始」�
   await fakeWebGpu(page);
   const traffic = await watchTraffic(page);
   await page.goto('./');
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-ai-lab').click();
   await expect(page.getByTestId('device-adapter')).toContainText('available');

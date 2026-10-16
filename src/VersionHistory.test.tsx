@@ -29,6 +29,8 @@ describe('バージョン履歴', () => {
     const user = userEvent.setup();
     render(<App />);
     for (const id of ['nav-checkout', 'nav-setup', 'nav-training', 'nav-settings']) {
+      // 設定はハンバーガーメニューの中にある。
+      if (id === 'nav-settings') await user.click(screen.getByTestId('menu-toggle'));
       await user.click(screen.getByTestId(id));
       expect(screen.queryByTestId('home-version-history')).not.toBeInTheDocument();
     }

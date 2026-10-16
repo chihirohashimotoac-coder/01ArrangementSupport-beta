@@ -181,9 +181,21 @@ function RouteListControls({ total, visibleCount, allLabel, onChange }: RouteLis
 export interface PracticePageProps {
   readonly mode: PracticeMode;
   readonly onModeChange: (mode: PracticeMode) => void;
+  /**
+   * 最初から入れておく残り点（ホームの例題から開いたとき）。
+   * 入力欄に打ち込んだのと同じ状態で始まるだけで、候補の計算には関与しない。
+   */
+  readonly initialRemaining?: number | null;
+  /** パンくずリストへ、いまの状況（「残り 103」）を知らせる。表示専用。 */
+  readonly onContextChange?: (label: string | null) => void;
 }
 
-export function PracticePage({ mode, onModeChange }: PracticePageProps) {
+export function PracticePage({
+  mode,
+  onModeChange,
+  initialRemaining = null,
+  onContextChange,
+}: PracticePageProps) {
   const { preferences } = usePreferences();
   const [selectedDarts, setSelectedDarts] = useState<1 | 2 | 3>(3);
   const [visibleCount, setVisibleCount] = useState(INITIAL_ROUTE_COUNT);
@@ -219,9 +231,20 @@ export function PracticePage({ mode, onModeChange }: PracticePageProps) {
    * 既定値の候補を出してしまうと、実戦では読み違えのもとになる。
    */
   const { visit, suggestion, throwDart, undo, nextVisit, reset, resetReference, clear } = useVisit(
-    null,
+    initialRemaining,
     suggestOptions,
   );
+
+  const contextLabel =
+    visit === null
+      ? null
+      : visit.status === 'bust' && !visit.visitStartKnown
+        ? 'BUST'
+        : `残り ${visit.remaining}`;
+  useEffect(() => {
+    onContextChange?.(contextLabel);
+  }, [contextLabel, onContextChange]);
+  useEffect(() => () => onContextChange?.(null), [onContextChange]);
 
   const resultRef = useRef<HTMLDivElement | null>(null);
   const recoveryRef = useRef<HTMLElement | null>(null);

@@ -203,3 +203,19 @@
 .dartboard__marker--past {
   opacity: 0.5;
 }
+
+/*
+ * ルートのチップで指した的は、ゆっくり脈打って居場所を知らせる。
+ * 塗りは固定し、縁取りの太さだけを変える（区画の形・当たり判定は変えない）。
+ */
+.dartboard__segment[data-focused='true'] { animation: target-pulse 1.6s ease-in-out infinite; }
+/* 次に狙う区画は、盤面を開いたときに一度だけ光る。 */
+.dartboard__segment[data-highlighted='true'] { animation: target-flash 900ms var(--ease-out) backwards; }
+
+@keyframes target-pulse {
+  0%, 100% { stroke-width: 4; }
+  50% { stroke-width: 7; }
+}
+@keyframes target-flash {
+  from { fill: var(--highlight-stroke); }
+}

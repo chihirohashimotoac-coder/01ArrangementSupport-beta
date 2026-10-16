@@ -84,7 +84,9 @@
   letter-spacing: 0.06em;
   color: var(--negative);
   background: var(--warn-bg);
-  animation: reveal var(--dur-slow) var(--ease-out);
+  /* BUST / CHECKOUT! はスタンプを押すように一度だけ現れる（Kinetic.css の stamp-in）。 */
+  transform-origin: left center;
+  animation: stamp-in 620ms var(--ease-out-expo) both;
 }
 
 .status-bar[data-status='checkout'] .status-bar__status,
@@ -102,3 +104,7 @@
   line-height: 1.55;
   color: var(--text-secondary);
 }
+
+/* 残り本数の札は、1 本使うたびに縮んで消える。 */
+.status-bar__pips span { transition: background-color var(--dur-base) var(--ease-out), transform 360ms var(--ease-spring); }
+.status-bar__pips span:not([data-filled='true']) { transform: scaleY(0.45); }

@@ -46,6 +46,7 @@ const TEST_RUNTIME_CHUNK = /\/labTestRuntime-[^/]+\.js$/;
 
 async function openLab(page: Page, mode: 'mock' | 'mock-hang') {
   await page.goto(`./?ai-lab-test-runtime=${mode}`);
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-ai-lab').click();
   await expect(page.getByTestId('lab-test-runtime')).toContainText(`TEST RUNTIME（${mode}）`);
@@ -117,6 +118,7 @@ test('生成中にページが終わると checkpoint が残り、次に開い�
 
   // タブの終了の代わりに、生成が返らないままページを読み込み直す。
   await page.reload();
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-ai-lab').click();
   const banner = page.getByTestId('lab-stale-checkpoint');

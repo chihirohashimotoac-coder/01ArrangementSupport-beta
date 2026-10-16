@@ -133,6 +133,7 @@ const SEEDED = {
 async function openLab(page: Page, query = ''): Promise<void> {
   await page.goto(`./${query}`);
   await seedForeignStorage(page);
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-ai-lab').click();
   await expect(page.getByTestId('lab-storage-diagnostics')).toBeVisible();
@@ -172,6 +173,7 @@ test('test mode（4 MiB）で 3 方式を実測し、WebLLM・利用者データ
   await expect(done.or(blocked).first()).toBeVisible({ timeout: 30_000 });
   for (let attempt = 0; attempt < 3 && !(await done.isVisible()); attempt += 1) {
     await page.reload();
+    await page.getByTestId('menu-toggle').click();
     await page.getByTestId('nav-settings').click();
     await page.getByTestId('open-ai-lab').click();
     const remaining: string[] = [];
@@ -241,6 +243,7 @@ test('前回のテストの残りを検出し、「診断用のデータを削�
       request.onerror = () => reject(request.error);
     });
   }, DIAG);
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('open-ai-lab').click();
   await expect(page.getByTestId('diag-leftovers')).toHaveText('OPFS: あり / IndexedDB: あり / Cache API: あり');

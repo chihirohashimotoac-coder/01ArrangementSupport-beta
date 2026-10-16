@@ -309,3 +309,48 @@
   .route-card--primary .route-card__dart { min-width: 0; padding-inline: 0.4rem; font-size: 1.6rem; }
   .route-card__darts li + li::before { margin-right: var(--space-1); }
 }
+
+/*
+ * --- 答えが出たときの動き ---------------------------------------------------
+ * カードそのものの位置は動かさない（答えへのスクロール位置を乱さない）。
+ * 上から下へ幕が開くように現れ（clip-path）、中の数字札と推奨度が順に弾む。
+ * clip-path は影まで切るので、終わったあとには残さない（fill-mode: backwards）。
+ */
+.route-card--primary { animation: card-wipe 560ms var(--ease-out-expo) backwards; }
+.route-card__darts li { animation: chip-pop 460ms var(--ease-spring) backwards; }
+.route-card__darts li:nth-child(2) { animation-delay: 70ms; }
+.route-card__darts li:nth-child(3) { animation-delay: 140ms; }
+.route-card__grade { animation: grade-stamp 520ms var(--ease-spring) 180ms backwards; }
+
+/* 候補一覧は、上の数件だけを少しずつ遅らせて流し込む（全件表示のときに重くしない）。 */
+.practice__list > .route-card:nth-child(-n + 8) { animation: list-in 420ms var(--ease-out) backwards; }
+.practice__list > .route-card:nth-child(2) { animation-delay: 50ms; }
+.practice__list > .route-card:nth-child(3) { animation-delay: 100ms; }
+.practice__list > .route-card:nth-child(4) { animation-delay: 150ms; }
+.practice__list > .route-card:nth-child(5) { animation-delay: 200ms; }
+.practice__list > .route-card:nth-child(6) { animation-delay: 250ms; }
+.practice__list > .route-card:nth-child(7) { animation-delay: 300ms; }
+.practice__list > .route-card:nth-child(8) { animation-delay: 350ms; }
+
+/* 理由の各行も、開いたときに上から順に現れる。 */
+.route-card__reasons:not([hidden]) li { animation: list-in 360ms var(--ease-out) backwards; }
+.route-card__reasons:not([hidden]) li:nth-child(2) { animation-delay: 40ms; }
+.route-card__reasons:not([hidden]) li:nth-child(3) { animation-delay: 80ms; }
+.route-card__reasons:not([hidden]) li:nth-child(n + 4) { animation-delay: 120ms; }
+
+@keyframes card-wipe {
+  from { clip-path: inset(0 0 100% 0); opacity: 0.2; }
+  to { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+@keyframes chip-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.86); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes grade-stamp {
+  from { opacity: 0; transform: scale(1.7) rotate(-12deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes list-in {
+  from { opacity: 0; clip-path: inset(0 0 30% 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}

@@ -1,6 +1,9 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Dartboard, type BoardMarker } from '../components/Dartboard';
 import { StatusBar } from '../components/StatusBar';
+import { StackedBar } from '../components/ui/Infographic';
+import { KineticText } from '../components/ui/Kinetic';
+import { ConfirmDialog } from '../components/ui/Modal';
 import { toDisplayPoint } from '../engine/simulation/boardGeometry';
 import { MAX_PPR } from '../engine/simulation/accuracy';
 import {
@@ -75,7 +78,12 @@ function pprLabel(value: number): string {
   return value.toFixed(0);
 }
 
-export function SimulationPage() {
+export interface SimulationPageProps {
+  /** パンくずリストへ、いまの状況（「501 ゲーム中」「振り返り」）を知らせる。表示専用。 */
+  readonly onContextChange?: (label: string | null) => void;
+}
+
+export function SimulationPage({ onContextChange }: SimulationPageProps = {}) {
   const { preferences } = usePreferences();
   const [form, setForm] = useState<SimulationPreferences>(() => loadSimulationPreferences());
   const [startMode, setStartMode] = useState<StartMode>(() =>
@@ -86,6 +94,15 @@ export function SimulationPage() {
   );
   const [game, setGame] = useState<SimulationGame | null>(null);
   const [scoreDraft, setScoreDraft] = useState('');
+  /** 「中断する」の確認ダイアログ。押し間違いで進行中のゲームを失わないため。 */
+  const [confirmQuit, setConfirmQuit] = useState(false);
+
+  const contextLabel =
+    game === null ? null : game.phase === 'finished' ? '振り返り' : `${game.settings.startScore} ゲーム中`;
+  useEffect(() => {
+    onContextChange?.(contextLabel);
+  }, [contextLabel, onContextChange]);
+  useEffect(() => () => onContextChange?.(null), [onContextChange]);
 
   // 設定は入力のたびに端末へ保存し、次回の SIMULATION へ引き継ぐ。
   useEffect(() => {
@@ -532,14 +549,28 @@ export function SimulationPage() {
               type="button"
               className="simulation__quit"
               data-testid="sim-quit"
-              onClick={() => {
-                setGame(null);
-                setScoreDraft('');
-              }}
+              onClick={() => setConfirmQuit(true)}
             >
               中断する
             </button>
           </div>
+
+          <ConfirmDialog
+            open={confirmQuit}
+            title="ゲームを中断しますか？"
+            confirmLabel="中断する"
+            cancelLabel="続ける"
+            tone="danger"
+            testId="confirm-quit"
+            onCancel={() => setConfirmQuit(false)}
+            onConfirm={() => {
+              setConfirmQuit(false);
+              setGame(null);
+              setScoreDraft('');
+            }}
+          >
+            <p>ここまでの投球は振り返りに残らず、設定の画面へ戻ります。</p>
+          </ConfirmDialog>
 
           {game.phase === 'score-entry' && (
             <section
@@ -658,6 +689,12 @@ export function SimulationPage() {
       {game !== null && game.phase === 'finished' && review !== null && highlights !== null && (
         <section className="simulation__review" data-testid="sim-review" aria-label="ゲームの振り返り">
           <h2 className="simulation__review-title">ゲームの振り返り</h2>
+          {/* 上がったゲームだけ、題字が 1 字ずつ跳ね上がる（飾り。結果は下の文で読める）。 */}
+          {review.summary.checkedOut && !review.summary.abandoned && (
+            <div className="simulation__gameshot" aria-hidden="true">
+              <KineticText lines={['GAME SHOT']} stagger={55} />
+            </div>
+          )}
 
           {/* --- 最重要: 結果と主要な記録 ------------------------------------ */}
           <div className="simulation__result" data-testid="sim-summary">
@@ -780,6 +817,16 @@ export function SimulationPage() {
                 得点を伸ばす場面 {highlights.scoringCount} 投と判定対象外{' '}
                 {highlights.notEvaluatedCount} 投は、どちらにも数えていません。
               </p>
+              <StackedBar
+                legend={false}
+                testId="sim-verdict-bar"
+                segments={THROW_VERDICTS.map((verdict) => ({
+                  key: verdict,
+                  label: THROW_VERDICT_JA[verdict],
+                  count: review.verdictCounts[verdict],
+                  tone: VERDICT_TONE[verdict],
+                }))}
+              />
               <ul className="simulation__verdict-counts" aria-label="判断の分類ごとの件数">
                 {THROW_VERDICTS.filter((verdict) => review.verdictCounts[verdict] > 0).map(
                   (verdict) => (
