@@ -109,3 +109,26 @@ test.describe('動きを減らす設定', () => {
     await expect(page.getByTestId('app-menu')).toHaveCount(0);
   });
 });
+
+test('バージョン履歴: プルダウンで選んだ版は、上の版が縮み終えてから見出しの位置へ移動する', async ({ page }) => {
+  await page.getByTestId('home-version-history').click();
+  const items = page.getByTestId('version-history-item');
+  // 現在の版（本文が長い）は開いている。その下の版を選ぶと、上の版が縮む。
+  await expect(items.first().locator('button').first()).toHaveAttribute('aria-expanded', 'true');
+  const target = items.nth(3);
+  const label = (await target.getAttribute('data-accordion-id')) ?? '';
+  await page.getByTestId('version-history-jump').selectOption(label);
+
+  await expect(target.locator('button').first()).toHaveAttribute('aria-expanded', 'true');
+  await expect(items.first().locator('button').first()).toHaveAttribute('aria-expanded', 'false');
+  // 移動が止まったあと、選んだ版の見出しが画面に入っている（上へ外れていない）。
+  const heading = target.locator('.accordion__trigger');
+  await expect(heading).toBeInViewport();
+  await expect
+    .poll(async () => heading.evaluate((el) => Math.round(el.getBoundingClientRect().top)), { timeout: 3000 })
+    .toBeGreaterThanOrEqual(0);
+  await page.waitForTimeout(900);
+  const top = await heading.evaluate((el) => el.getBoundingClientRect().top);
+  expect(top).toBeGreaterThanOrEqual(0);
+  expect(top).toBeLessThan(page.viewportSize()!.height / 2);
+});

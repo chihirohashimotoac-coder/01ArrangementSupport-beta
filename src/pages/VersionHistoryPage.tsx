@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Accordion } from '../components/ui/Accordion';
+import { prefersReducedMotion } from '../components/ui/motion';
 import { Select } from '../components/ui/Select';
 import { VERSION_HISTORY } from '../data/versionHistory';
 import './VersionHistoryPage.css';
+
+/**
+ * アコーディオンの開閉が終わるまでの待ち時間。Accordion.css の伸縮（`--dur-slow` = 260ms）より少し長く取る。
+ * 開閉の途中でスクロール先を計算すると、上の版が縮むぶんだけ行き先がずれる。
+ */
+const ACCORDION_SETTLE_MS = 300;
 
 export interface VersionHistoryPageProps {
   /** トップページへ戻る。 */
@@ -19,6 +26,31 @@ export function VersionHistoryPage({ onBack }: VersionHistoryPageProps) {
   const [openIds, setOpenIds] = useState<readonly string[]>(() =>
     VERSION_HISTORY.filter((entry) => entry.current).map((entry) => entry.label),
   );
+
+  /** プルダウンで選んだ版への移動の予約。続けて選び直したら前の予約は捨てる。 */
+  const jumpTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (jumpTimer.current !== null) window.clearTimeout(jumpTimer.current);
+    },
+    [],
+  );
+
+  const jumpTo = (label: string) => {
+    setOpenIds([label]);
+    if (jumpTimer.current !== null) window.clearTimeout(jumpTimer.current);
+    const reduced = prefersReducedMotion();
+    // 開閉の伸縮が終わり、高さが確定してから移動する（動きを減らす設定では伸縮が無いので次の描画で）。
+    jumpTimer.current = window.setTimeout(
+      () => {
+        jumpTimer.current = null;
+        [...document.querySelectorAll<HTMLElement>('.version-history [data-accordion-id]')]
+          .find((element) => element.dataset.accordionId === label)
+          ?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+      },
+      reduced ? 16 : ACCORDION_SETTLE_MS,
+    );
+  };
 
   // 直前の画面のスクロール位置を持ち越さず、履歴の先頭から読み始められるようにする。
   useEffect(() => {
@@ -59,18 +91,7 @@ export function VersionHistoryPage({ onBack }: VersionHistoryPageProps) {
           { value: '', label: '選択してください', disabled: true },
           ...VERSION_HISTORY.map((entry) => ({ value: entry.label, label: `${entry.date}  ${entry.label}` })),
         ]}
-        onChange={(label) => {
-          setOpenIds([label]);
-          // 開いてから移動する（描画を待つ）。
-          window.requestAnimationFrame(() => {
-            [...document.querySelectorAll<HTMLElement>('.version-history [data-accordion-id]')]
-              .find((element) => element.dataset.accordionId === label)
-              ?.scrollIntoView({
-                block: 'start',
-                behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-              });
-          });
-        }}
+        onChange={jumpTo}
       />
 
       <Accordion
