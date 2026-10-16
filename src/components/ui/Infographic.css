@@ -1,0 +1,210 @@
+/*
+ * インフォグラフィック。色は意味の token（推奨度・判定）だけを使い、
+ * 値は必ず文字でも添える。画面に入ったときに一度だけ伸びる。
+ */
+[data-tone='good'], [data-tone='S'] { --tone: var(--grade-s-fg); }
+[data-tone='A'] { --tone: var(--grade-a-fg); }
+[data-tone='warn'], [data-tone='B'] { --tone: var(--grade-b-fg); }
+[data-tone='bad'], [data-tone='C'] { --tone: var(--grade-c-fg); }
+[data-tone='plain'], [data-tone='invalid'] { --tone: var(--text-dim); }
+[data-tone='default'] { --tone: var(--text); }
+
+/* --- 円環ゲージ ------------------------------------------------------------ */
+.ring-gauge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  aspect-ratio: 1;
+}
+.ring-gauge__svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-gauge__track { fill: none; stroke: var(--surface-alt); stroke-width: 9; }
+.ring-gauge__tick { stroke: var(--border-strong); stroke-width: 1.2; }
+.ring-gauge__value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 100;
+  transition: stroke-dashoffset 1400ms var(--ease-out-expo) 120ms;
+}
+.ring-gauge[data-inview='true'] .ring-gauge__value { stroke-dashoffset: calc(100 - var(--ring-value) * 100); }
+.ring-gauge[data-empty='true'] .ring-gauge__value { opacity: 0; }
+.ring-gauge__center { position: relative; display: grid; justify-items: center; line-height: 1; }
+.ring-gauge__caption {
+  margin-top: 0.3rem;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+/* --- 表の中の横棒 ---------------------------------------------------------- */
+.meter {
+  display: block;
+  width: 100%;
+  min-width: 3rem;
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-alt);
+  box-shadow: var(--inset-well);
+}
+.meter__fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--meter-value) * 100%);
+  border-radius: inherit;
+  background: var(--tone, var(--text));
+  transform-origin: left;
+  animation: meter-grow 900ms var(--ease-out-expo) both;
+  animation-delay: calc(var(--meter-i) * 70ms + 80ms);
+}
+/* アコーディオンの中では、開いたときに伸び直す。 */
+.accordion__item[data-open='false'] .meter__fill { animation: none; }
+
+@keyframes meter-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* --- 積み上げ帯 ------------------------------------------------------------ */
+.stacked-bar { display: grid; gap: var(--space-2); }
+.stacked-bar__track {
+  display: flex;
+  gap: 2px;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-alt);
+  box-shadow: var(--inset-well);
+}
+.stacked-bar__segment {
+  flex: 0 0 auto;
+  width: calc(var(--seg-share) * 100% - 2px);
+  min-width: 3px;
+  background: var(--tone);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.stacked-bar[data-inview='true'] .stacked-bar__segment {
+  animation: meter-grow 700ms var(--ease-out-expo) both;
+  animation-delay: calc(var(--seg-i) * 140ms);
+}
+.stacked-bar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.stacked-bar__legend li { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+.stacked-bar__legend li[data-empty='true'] { opacity: 0.55; }
+.stacked-bar__swatch { width: 0.55rem; height: 0.55rem; border-radius: 2px; background: var(--tone); align-self: center; }
+.stacked-bar__count { font-weight: 800; font-stretch: 80%; font-variant-numeric: tabular-nums; color: var(--text); }
+.stacked-bar__share { font-variant-numeric: tabular-nums; color: var(--text-dim); }
+
+/* --- 残り点の地図 ---------------------------------------------------------- */
+.score-map {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+.score-map__bands { position: relative; display: grid; gap: var(--space-2); }
+.score-map__band {
+  position: relative;
+  height: 2.25rem;
+}
+.score-map__band-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--band-left);
+  width: var(--band-width);
+  border-radius: var(--radius-s);
+  background: var(--accent-soft);
+  border: 1px solid var(--border-strong);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.score-map__band[data-band='checkout'] .score-map__band-bar { background: var(--grade-s-bg); border-color: var(--grade-s-fg); }
+.score-map__band[data-band='setup'] .score-map__band-bar { background: var(--grade-a-bg); border-color: var(--grade-a-fg); }
+.score-map__band[data-band='training'] .score-map__band-bar {
+  background: repeating-linear-gradient(-45deg, var(--accent-soft) 0 6px, transparent 6px 12px);
+}
+.score-map__band-label {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--band-left) + 0.55rem);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  transform: translateY(-50%);
+  opacity: 0;
+}
+.score-map__band-label strong { font-weight: 800; font-stretch: 82%; letter-spacing: 0.03em; color: var(--text); }
+.score-map__band-label span { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.score-map[data-inview='true'] .score-map__band-bar {
+  animation: meter-grow 900ms var(--ease-out-expo) both;
+  animation-delay: calc(var(--band-i) * 180ms);
+}
+.score-map[data-inview='true'] .score-map__band-label {
+  animation: score-map-label 500ms var(--ease-out) both;
+  animation-delay: calc(var(--band-i) * 180ms + 420ms);
+}
+.score-map__axis {
+  position: relative;
+  height: 1.25rem;
+  border-top: 1px solid var(--border-strong);
+}
+.score-map__tick {
+  position: absolute;
+  top: 0;
+  left: var(--tick-left);
+  padding-top: 0.3rem;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-stretch: 80%;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  transform: translateX(-50%);
+  opacity: 0;
+}
+.score-map__tick::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 1px;
+  height: 0.3rem;
+  background: var(--border-strong);
+}
+.score-map__tick:first-child { transform: none; }
+.score-map__tick:first-child::before { left: 0; }
+.score-map__tick:last-child { transform: translateX(-100%); }
+.score-map__tick:last-child::before { left: auto; right: 0; }
+.score-map[data-inview='true'] .score-map__tick {
+  animation: score-map-label 400ms var(--ease-out) both;
+  animation-delay: calc(var(--tick-i) * 70ms + 300ms);
+}
+.score-map__caption { font-size: var(--text-xs); line-height: 1.6; color: var(--text-dim); }
+
+@keyframes score-map-label {
+  from { opacity: 0; transform: translateY(calc(-50% + 4px)); }
+  to { opacity: 1; transform: translateY(-50%); }
+}
+.score-map[data-inview='true'] .score-map__tick { animation-name: score-map-tick; }
+@keyframes score-map-tick {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}

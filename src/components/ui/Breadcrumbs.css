@@ -1,0 +1,73 @@
+/* パンくずリスト。小さな字で 1 行に収め、区切りは細い山形。 */
+.breadcrumbs {
+  min-width: 0;
+  margin-top: calc(var(--space-2) * -1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.breadcrumbs::-webkit-scrollbar { display: none; }
+.breadcrumbs__list {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+.breadcrumbs__item {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.02em;
+  animation: crumb-in var(--dur-slow) var(--ease-out) both;
+}
+.breadcrumbs__item + .breadcrumbs__item::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 0.36rem;
+  height: 0.36rem;
+  margin: 0 0.55rem 0 0.3rem;
+  border-top: 1.5px solid var(--text-dim);
+  border-right: 1.5px solid var(--text-dim);
+  transform: rotate(45deg);
+}
+.breadcrumbs__link,
+.breadcrumbs__current {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 0.3rem;
+  border-radius: var(--radius-xs);
+}
+.breadcrumbs__link {
+  position: relative;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+/* 下線がホバーで左から伸びる。 */
+.breadcrumbs__link::after {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  right: 0.3rem;
+  bottom: 0.3rem;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .breadcrumbs__link:hover { color: var(--text); }
+  .breadcrumbs__link:hover::after { transform: scaleX(1); }
+}
+.breadcrumbs__current { color: var(--text); font-variant-numeric: tabular-nums; }
+
+@keyframes crumb-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: none; }
+}

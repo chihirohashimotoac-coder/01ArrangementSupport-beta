@@ -1,0 +1,46 @@
+/* プルダウン。凹んだ窓の中に値を置き、右端に山形を添える。 */
+.select { display: grid; gap: var(--space-1); min-width: 0; }
+.select__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.select__control { position: relative; min-width: 0; }
+.select__native {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 2.5rem 0 var(--space-3);
+  font-size: var(--text-md);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  box-shadow: var(--inset-well);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+}
+.select__native:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--inset-well), 0 0 0 3px var(--accent-soft);
+}
+.select__native option { color: var(--text); background: var(--surface-elevated); }
+.select__chevron {
+  position: absolute;
+  right: 0.95rem;
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: -0.35rem;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg);
+  pointer-events: none;
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.select__control:focus-within .select__chevron { transform: translateY(2px) rotate(45deg); }
+.select__hint { margin: 0; font-size: var(--text-xs); color: var(--text-dim); }

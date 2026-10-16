@@ -1,0 +1,182 @@
+/*
+ * モーダル（ダイアログ / ドロワー）。
+ * 背景は画面を沈め、パネルだけを浮かせる。入場は 280ms、退場は 200ms（Modal.tsx の EXIT_MS）。
+ */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  padding: calc(var(--space-4) + env(safe-area-inset-top, 0px)) calc(var(--space-4) + env(safe-area-inset-right, 0px))
+    calc(var(--space-4) + env(safe-area-inset-bottom, 0px)) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  place-items: center;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: modal-fade var(--dur-slow) var(--ease-out) both;
+}
+
+.modal__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 26rem);
+  max-height: 100%;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-lg);
+  animation: modal-pop 280ms var(--ease-spring) both;
+}
+.modal__panel:focus { outline: none; }
+
+.modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-2) var(--space-5);
+}
+.modal__titles { display: grid; gap: 0.1rem; min-width: 0; }
+.modal__eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  font-stretch: var(--stretch-label);
+  letter-spacing: 0.16em;
+  color: var(--text-dim);
+}
+.modal__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 750;
+  line-height: var(--leading-tight);
+}
+
+/* 閉じる（×）。2 本の線を交差させて描く。 */
+.modal__close {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.modal__close span::before,
+.modal__close span::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.125rem;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.modal__close span::after { transform: translate(-50%, -50%) rotate(-45deg); }
+@media (hover: hover) {
+  .modal__close:hover { color: var(--text); background: var(--surface-highlight); }
+  .modal__close:hover span::before { transform: translate(-50%, -50%) rotate(135deg); }
+  .modal__close:hover span::after { transform: translate(-50%, -50%) rotate(45deg); }
+}
+
+.modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-5) var(--space-4);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+.modal__body p { margin: 0 0 var(--space-2); }
+
+.modal__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.modal__button {
+  min-height: var(--tap);
+  padding: 0 var(--space-5);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.modal__button--primary {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.modal__button--danger {
+  color: #fff;
+  background: var(--danger-solid);
+  border-color: var(--danger-solid);
+}
+@media (hover: hover) {
+  .modal__button:not(.modal__button--primary):hover { background: var(--surface-highlight); }
+  .modal__button--primary:not(.modal__button--danger):hover { background: var(--accent-hover); }
+}
+
+/* --- ドロワー（ハンバーガーメニュー） ------------------------------------ */
+.modal--drawer {
+  padding: 0;
+  place-items: stretch end;
+}
+.modal--drawer .modal__panel {
+  width: min(88vw, 23rem);
+  height: 100%;
+  max-height: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) 0;
+  border-width: 0 0 0 1px;
+  border-radius: var(--radius-m) 0 0 var(--radius-m);
+  animation: drawer-in 340ms var(--ease-out-expo) both;
+}
+.modal--drawer .modal__body { padding: 0 var(--space-4) var(--space-5); }
+
+/* --- 退場 ------------------------------------------------------------- */
+.modal[data-state='closing'] { pointer-events: none; }
+.modal[data-state='closing'] .modal__backdrop { animation: modal-fade 200ms ease-in reverse both; }
+.modal[data-state='closing'] .modal__panel { animation: modal-pop-out 200ms ease-in both; }
+.modal--drawer[data-state='closing'] .modal__panel { animation: drawer-out 200ms ease-in both; }
+
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes modal-pop-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes drawer-out {
+  from { transform: none; }
+  to { transform: translateX(100%); }
+}

@@ -63,6 +63,10 @@
 
   /* --- Motion ------------------------------------------------------------ */
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* 立ち上がりが速く、最後にゆっくり止まる（文字・帯が伸びる動き）。 */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* わずかに行き過ぎて戻る（つまみ・山形・スタンプ）。 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-slow: 260ms;
@@ -99,6 +103,10 @@
   --warning-soft: rgba(232, 196, 106, 0.12);
   --danger: #f28b85;
   --danger-soft: rgba(242, 139, 133, 0.12);
+  /* 取り消せない操作の主ボタン（白文字で 4.5:1 以上）。 */
+  --danger-solid: #b3261e;
+  /* モーダルの背面を沈める幕。 */
+  --scrim: rgba(5, 7, 9, 0.62);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.32);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.42);
@@ -161,6 +169,8 @@
   --warning-soft: rgba(176, 125, 0, 0.11);
   --danger: #b0271f;
   --danger-soft: rgba(176, 39, 31, 0.08);
+  --danger-solid: #a3231c;
+  --scrim: rgba(21, 24, 27, 0.42);
   --shadow-sm: 0 1px 2px rgba(21, 24, 27, 0.08);
   --shadow-md: 0 6px 18px rgba(21, 24, 27, 0.08);
   --shadow-lg: 0 16px 40px rgba(21, 24, 27, 0.12);
@@ -242,11 +252,26 @@ p { text-wrap: pretty; }
   to { opacity: 1; }
 }
 
+/*
+ * 画面の切り替え（モード・設定・履歴など）で、新しい画面がわずかに浮き上がって現れる。
+ * 答えの位置を前提にしたスクロールは、入力を終えたときにだけ起きるので、この入場とは重ならない。
+ */
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+ * 動きを減らす設定では、すべての動きを止めて最終形をすぐに出す。
+ * 待ち時間（delay）も 0 にする。残すと、文字や帯が待ち時間のあいだ見えないままになる。
+ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
