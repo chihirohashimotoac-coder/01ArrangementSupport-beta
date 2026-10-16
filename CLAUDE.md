@@ -2,8 +2,20 @@
 
 まず `AGENTS.md` を読んでください。ここには Claude Code に固有の事項だけを書きます。
 
-> このリポジトリは **Beta 版**です。Production（`01ArrangementSupport`）は READ ONLY。
+> このリポジトリは **Beta 版**です。Production（`01ArrangementSupport`）は READ ONLY
+> （オーナーが「01ArrangementSupport」を名指しして更新を指示した場合を除く。0 節）。
 > **Deterministic Engine decides. AI explains.**（`docs/AI_BOUNDARIES.md`）
+
+---
+
+## 0. どのリポジトリを更新するか（オーナー指示 2026-10-16）
+
+- オーナーが **「01ArrangementSupport」** と言ったときは Production
+  （`chihirohashimotoac-coder/01ArrangementSupport`、https://chihirohashimotoac-coder.github.io/01ArrangementSupport/）を更新する。
+- オーナーが **「01ArrangementSupport-beta」** と言ったときは Beta
+  （`chihirohashimotoac-coder/01ArrangementSupport-beta`、https://chihirohashimotoac-coder.github.io/01ArrangementSupport-beta/）を更新する。
+- 「本番」「アプリ」「デプロイ」など、どちらを指すか曖昧なときは、作業を始める前に**必ずオーナーへ確認する**。
+  推測で決めない。
 
 ---
 
