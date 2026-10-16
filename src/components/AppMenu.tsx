@@ -62,7 +62,8 @@ export interface AppMenuProps {
   readonly onThemeChange: (theme: Theme) => void;
   /** 下部に小さく出す版の呼称（v1.4.9 など）。 */
   readonly versionLabel: string | null;
-  readonly channelBadge: string;
+  /** リリースチャンネルの札（Beta なら BETA）。無ければ出さない。 */
+  readonly channelBadge?: string;
 }
 
 const MORE: ReadonlyArray<{ id: MenuDestination; label: string; sub: string; testId: string }> = [
@@ -161,7 +162,7 @@ export function AppMenu({
         </div>
 
         <p className="app-menu__version" style={delay(moreStart + MORE.length + 1)}>
-          01 Arrangement Support <span>{channelBadge}</span>
+          01 Arrangement Support {channelBadge && <span>{channelBadge}</span>}
           {versionLabel && <span>{versionLabel}</span>}
         </p>
       </nav>
