@@ -1,3 +1,4 @@
+import { RollingNumber } from './ui/Kinetic';
 import './StatusBar.css';
 
 export interface StatusBarProps {
@@ -30,15 +31,16 @@ export function StatusBar({
       <div className="status-bar__main">
         <div className="status-bar__left">
           <span className="status-bar__caption">LEFT</span>
-          <span className="status-bar__value" data-testid="status-left">
-            {remaining ?? '—'}
-          </span>
+          {/* 残り点は変わった桁だけが転がり込む。文字は常に最終値そのもの。 */}
+          <RollingNumber className="status-bar__value" testId="status-left" value={remaining ?? '—'} />
         </div>
         <div className="status-bar__darts">
           <span className="status-bar__caption">DARTS</span>
-          <span className="status-bar__value status-bar__value--small" data-testid="status-darts">
-            {dartsLeft}
-          </span>
+          <RollingNumber
+            className="status-bar__value status-bar__value--small"
+            testId="status-darts"
+            value={dartsLeft}
+          />
           <span className="status-bar__pips" aria-hidden="true">
             {[0, 1, 2].map((index) => (
               <span key={index} data-filled={index < dartsLeft ? 'true' : undefined} />

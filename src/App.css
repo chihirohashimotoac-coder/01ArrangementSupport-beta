@@ -31,7 +31,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    'title settings'
+    'title menu'
     'nav nav';
   align-items: center;
   gap: var(--space-2) var(--space-3);
@@ -69,6 +69,12 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   line-height: 1.15;
+  /* 起動時に一度だけ、スコアボードの札が裏返るように現れる。 */
+  animation: mark-flip 700ms var(--ease-spring) 80ms both;
+}
+@keyframes mark-flip {
+  from { opacity: 0; transform: perspective(200px) rotateX(-90deg); }
+  to { opacity: 1; transform: none; }
 }
 .app__name {
   min-width: 0;
@@ -93,22 +99,13 @@
   border-radius: var(--radius-xs);
 }
 
-.app__settings {
-  grid-area: settings;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  padding: 0 var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: 650;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-}
 
-/* モードの切り替え。凹んだ溝の中で、選んだものだけが反転して浮く（セレクタースイッチ）。 */
+/*
+ * モードの切り替え。凹んだ溝の中で、選んだものだけが反転して浮く（セレクタースイッチ）。
+ * 反転した面（thumb）は 1 枚だけで、選び直すとその位置へ滑って移る。
+ */
 .app__nav {
+  position: relative;
   grid-area: nav;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -120,7 +117,22 @@
   border-radius: calc(var(--radius-s) + 3px);
   box-shadow: var(--inset-well);
 }
+.app__nav-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px - 3 * 2px) / 4);
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(calc(var(--nav-index) * (100% + 2px)));
+  transition: transform 420ms var(--ease-spring), opacity var(--dur-base) ease;
+}
+.app__nav[data-selected='false'] .app__nav-thumb { opacity: 0; transform: translateX(calc(var(--nav-index) * (100% + 2px))) scaleX(0.6); }
 .app__nav button {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   min-height: var(--tap);
   padding: 0 0.15rem;
@@ -139,20 +151,12 @@
 }
 .app__nav button[aria-pressed='true'] {
   color: var(--accent-contrast);
-  background: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-.app__settings[aria-pressed='true'] {
-  color: var(--accent-contrast);
-  background: var(--accent);
-  border-color: var(--accent);
 }
 @media (hover: hover) {
-  .app__nav button:not([aria-pressed='true']):hover { color: var(--text); background: var(--surface-elevated); }
-  .app__settings:not([aria-pressed='true']):hover { color: var(--text); border-color: var(--text-dim); }
+  .app__nav button:not([aria-pressed='true']):hover { color: var(--text); }
   .app__title:hover .app__name { color: var(--text-secondary); }
 }
-.app__nav button:focus-visible, .app__settings:focus-visible, .app__title:focus-visible {
+.app__nav button:focus-visible, .menu-toggle:focus-visible, .app__title:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -160,7 +164,7 @@
 @media (min-width: 64rem) {
   .app__header {
     grid-template-columns: auto minmax(0, 34rem) auto;
-    grid-template-areas: 'title nav settings';
+    grid-template-areas: 'title nav menu';
     justify-content: space-between;
     column-gap: var(--space-6);
     padding-bottom: var(--space-3);
@@ -169,150 +173,7 @@
 }
 
 .app__main { position: relative; z-index: 0; flex: 1; min-width: 0; }
+/* 画面を移るたびに、新しい画面が一度だけ浮き上がって現れる（index.css の view-in）。 */
+.app__view { animation: view-in 420ms var(--ease-out-expo) both; }
 .app__footer { padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .app__footer p { margin: 0; font-size: var(--text-2xs); line-height: 1.6; color: var(--text-dim); }
-
-/* --- ホーム ---------------------------------------------------------------- */
-
-.home { display: flex; flex-direction: column; gap: var(--space-5); }
-.home__lead {
-  max-width: 40rem;
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-md);
-  line-height: 1.8;
-  color: var(--text-secondary);
-}
-
-/*
- * モードの一覧は、罫線で区切った 1 枚の表。
- * 各行: モード名（大きく凝縮した字）/ 扱う範囲（等幅数字）/ 一言の説明。
- */
-.home__modes {
-  display: grid;
-  border-top: 1px solid var(--border-strong);
-}
-.home__modes button {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    'label scope'
-    'sub sub';
-  align-items: baseline;
-  gap: var(--space-1) var(--space-4);
-  min-width: 0;
-  padding: var(--space-4) var(--space-2) var(--space-4) var(--space-3);
-  text-align: left;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  cursor: pointer;
-}
-/* 選べる行であることを、左端の細い札で示す。押した・指した行だけ明るくなる。 */
-.home__modes button::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: var(--space-4);
-  bottom: var(--space-4);
-  width: 2px;
-  background: var(--border-strong);
-  transition: background-color var(--dur-base) var(--ease-out);
-}
-.home__mode-label {
-  grid-area: label;
-  font-size: clamp(1.75rem, 8.4vw, 2.25rem);
-  font-weight: 800;
-  font-stretch: 76%;
-  letter-spacing: 0.005em;
-  line-height: 1;
-}
-.home__mode-scope {
-  grid-area: scope;
-  font-size: var(--text-base);
-  font-weight: 600;
-  font-stretch: 84%;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.home__mode-sub {
-  grid-area: sub;
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--text-dim);
-}
-@media (hover: hover) {
-  .home__modes button:hover { background: var(--surface); }
-  .home__modes button:hover::before { background: var(--accent); }
-}
-.home__modes button:active::before { background: var(--accent); }
-.home__modes button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-
-.home__points {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  line-height: 1.7;
-  color: var(--text-dim);
-}
-
-/*
- * トップページ下部の補助リンク。フッター直前に右寄せで置き、
- * 狭い画面では折り返して 2 行になる（はみ出させない）。
- */
-.home__more {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.home__history {
-  min-width: 0;
-  min-height: var(--tap);
-  padding: 0 var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-}
-.home__history:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-@media (hover: hover) {
-  .home__history:hover { color: var(--text); border-color: var(--border-strong); }
-}
-
-/* 広い画面: 4 モードを横一列の表にし、縦に長いだけのレイアウトを避ける。 */
-@media (min-width: 48rem) {
-  .home__modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .home__modes button { padding: var(--space-5) var(--space-4) var(--space-5) var(--space-5); }
-  .home__modes button:nth-child(odd) { border-right: 1px solid var(--border); }
-  .home__points { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
-}
-@media (min-width: 64rem) {
-  .home { gap: var(--space-6); padding-top: var(--space-2); }
-  .home__lead { font-size: var(--text-base); }
-  .home__modes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .home__modes button {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr auto;
-    grid-template-areas: 'label' 'sub' 'scope';
-    align-items: start;
-    min-height: 12rem;
-    padding: var(--space-5) var(--space-5) var(--space-5) var(--space-6);
-    border-right: 1px solid var(--border);
-  }
-  .home__modes button:last-child { border-right: 0; }
-  .home__modes button::before { top: var(--space-5); bottom: auto; height: 2.25rem; }
-  .home__mode-label { font-size: 2.25rem; }
-  .home__mode-scope { font-size: var(--text-xl); font-weight: 650; color: var(--text); }
-}

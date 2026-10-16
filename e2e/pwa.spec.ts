@@ -153,6 +153,7 @@ test('Beta は Production の保存データを読まず、書き換えも削除
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // Beta で設定を変えると、Beta のキーにだけ保存される。
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByTestId('theme-light').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

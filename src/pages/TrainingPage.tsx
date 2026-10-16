@@ -3,6 +3,12 @@ import { AimAreaCard } from '../components/AimAreaCard';
 import { Dartboard } from '../components/Dartboard';
 import { RouteCard } from '../components/RouteCard';
 import { StatusBar } from '../components/StatusBar';
+import { Accordion } from '../components/ui/Accordion';
+import { Meter, RingGauge, StackedBar } from '../components/ui/Infographic';
+import { RollingNumber } from '../components/ui/Kinetic';
+import { ConfirmDialog } from '../components/ui/Modal';
+import { RadioGroup } from '../components/ui/RadioGroup';
+import { Select } from '../components/ui/Select';
 import { requireDart, type Dart } from '../domain/dart';
 import { MAX_CHECKOUT, MAX_SETUP_REMAINING } from '../domain/checkoutRules';
 import {
@@ -57,6 +63,52 @@ const TIME_OPTIONS: ReadonlyArray<{ label: string; value: number | null }> = [
   { label: '30秒', value: 30 },
 ];
 
+/**
+ * 出題範囲のプリセット（プルダウン）。数値の欄へ打ち込む手間を省くためだけの入力補助で、
+ * 選んだ値はそのまま下の最小値・最大値の欄へ入る（出題の作り方は変えない）。
+ */
+interface RangePreset {
+  readonly value: string;
+  readonly label: string;
+  readonly min: number;
+  readonly max: number;
+}
+
+const CHECKOUT_PRESETS: readonly RangePreset[] = [
+  { value: 'all', label: '全範囲', min: 2, max: MAX_CHECKOUT },
+  { value: '2-40', label: '2〜40', min: 2, max: 40 },
+  { value: '41-100', label: '41〜100', min: 41, max: 100 },
+  { value: `101-${MAX_CHECKOUT}`, label: `101〜${MAX_CHECKOUT}`, min: 101, max: MAX_CHECKOUT },
+];
+
+const SETUP_PRESETS: readonly RangePreset[] = [
+  { value: 'all', label: '全範囲', min: 171, max: MAX_SETUP_REMAINING },
+  { value: '171-250', label: '171〜250', min: 171, max: 250 },
+  { value: `251-${MAX_SETUP_REMAINING}`, label: `251〜${MAX_SETUP_REMAINING}`, min: 251, max: MAX_SETUP_REMAINING },
+];
+
+const CUSTOM_PRESET = 'custom';
+
+function presetValueOf(presets: readonly RangePreset[], range: { min: number; max: number }): string {
+  return presets.find((preset) => preset.min === range.min && preset.max === range.max)?.value ?? CUSTOM_PRESET;
+}
+
+function presetOptions(presets: readonly RangePreset[]) {
+  return [
+    ...presets.map((preset) => ({ value: preset.value, label: preset.label })),
+    { value: CUSTOM_PRESET, label: 'カスタム' },
+  ];
+}
+
+/** 推奨度の内訳の色（意味の token）。 */
+const GRADE_SEGMENTS = [
+  { key: 'S', label: 'S' },
+  { key: 'A', label: 'A' },
+  { key: 'B', label: 'B' },
+  { key: 'C', label: 'C' },
+  { key: 'invalid', label: '不成立' },
+] as const;
+
 interface SessionState {
   readonly questions: readonly TrainingQuestion[];
   readonly index: number;
@@ -68,7 +120,12 @@ interface SessionState {
   readonly settings: TrainingSettings;
 }
 
-export function TrainingPage() {
+export interface TrainingPageProps {
+  /** パンくずリストへ、いまの状況（「3 / 10 問目」）を知らせる。表示専用。 */
+  readonly onContextChange?: (label: string | null) => void;
+}
+
+export function TrainingPage({ onContextChange }: TrainingPageProps = {}) {
   const [settings, setSettings] = useState<TrainingSettings>(DEFAULT_TRAINING_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
@@ -77,6 +134,7 @@ export function TrainingPage() {
   const [feedback, setFeedback] = useState<TrainingFeedback | null>(null);
   const [history, setHistory] = useState<TrainingHistory>(() => loadHistory());
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const startedAt = useRef<number>(0);
 
   const stats = useMemo(() => computeStats(history), [history]);
@@ -195,6 +253,19 @@ export function TrainingPage() {
   const unusableSettings = !canGenerateQuestions(settings);
   const emptySession = session !== null && session.questions.length === 0;
 
+  const contextLabel =
+    session === null || question === null
+      ? finished
+        ? '完了'
+        : null
+      : session.settings.questionCount === null
+        ? `${session.index + 1} 問目`
+        : `${session.index + 1} / ${session.settings.questionCount} 問目`;
+  useEffect(() => {
+    onContextChange?.(contextLabel);
+  }, [contextLabel, onContextChange]);
+  useEffect(() => () => onContextChange?.(null), [onContextChange]);
+
   return (
     <div className="training">
       <section className="training__setup" aria-label="トレーニング設定">
@@ -223,6 +294,37 @@ export function TrainingPage() {
 
         {settingsOpen && (
           <div className="training__settings" data-testid="training-settings">
+            <div className="training__presets">
+              <Select
+                label="CHECKOUT の範囲"
+                testId="training-checkout-preset"
+                value={presetValueOf(CHECKOUT_PRESETS, settings.checkoutRange)}
+                options={presetOptions(CHECKOUT_PRESETS)}
+                onChange={(value) => {
+                  const preset = CHECKOUT_PRESETS.find((item) => item.value === value);
+                  if (preset === undefined) return;
+                  setSettings((current) => ({
+                    ...current,
+                    checkoutRange: { min: preset.min, max: preset.max },
+                  }));
+                }}
+              />
+              <Select
+                label="SETUP の範囲"
+                testId="training-setup-preset"
+                value={presetValueOf(SETUP_PRESETS, settings.setupRange)}
+                options={presetOptions(SETUP_PRESETS)}
+                onChange={(value) => {
+                  const preset = SETUP_PRESETS.find((item) => item.value === value);
+                  if (preset === undefined) return;
+                  setSettings((current) => ({
+                    ...current,
+                    setupRange: { min: preset.min, max: preset.max },
+                  }));
+                }}
+              />
+            </div>
+
             <label>
               <span>CHECKOUT 出題範囲</span>
               <span className="training__range">
@@ -293,35 +395,23 @@ export function TrainingPage() {
               </span>
             </label>
 
-            <fieldset>
-              <legend>出題数</legend>
-              {COUNT_OPTIONS.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={settings.questionCount === option.value}
-                  onClick={() => setSettings((value) => ({ ...value, questionCount: option.value }))}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </fieldset>
+            <RadioGroup<number | null>
+              legend="出題数"
+              className="training__radio"
+              testId="training-count"
+              value={settings.questionCount}
+              options={COUNT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={(questionCount) => setSettings((value) => ({ ...value, questionCount }))}
+            />
 
-            <fieldset>
-              <legend>制限時間</legend>
-              {TIME_OPTIONS.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={settings.timeLimitSeconds === option.value}
-                  onClick={() =>
-                    setSettings((value) => ({ ...value, timeLimitSeconds: option.value }))
-                  }
-                >
-                  {option.label}
-                </button>
-              ))}
-            </fieldset>
+            <RadioGroup<number | null>
+              legend="制限時間"
+              className="training__radio"
+              testId="training-time"
+              value={settings.timeLimitSeconds}
+              options={TIME_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={(timeLimitSeconds) => setSettings((value) => ({ ...value, timeLimitSeconds }))}
+            />
 
             <label className="training__checkbox">
               <input
@@ -626,36 +716,56 @@ export function TrainingPage() {
 
       <section className="training__stats" aria-label="学習履歴">
         <h2>学習履歴</h2>
-        <dl data-testid="training-stats">
-          <div>
-            <dt>回答数</dt>
-            <dd data-testid="stat-attempts">{stats.attempts}</dd>
-          </div>
-          <div>
-            <dt>正答率</dt>
-            <dd data-testid="stat-accuracy">{Math.round(stats.accuracy * 100)}%</dd>
-          </div>
-          <div>
-            <dt>平均回答時間</dt>
-            <dd>{(stats.averageMs / 1000).toFixed(1)} 秒</dd>
-          </div>
-          <div>
-            <dt>連続正解</dt>
-            <dd>
-              {stats.currentStreak}（最高 {stats.bestStreak}）
-            </dd>
-          </div>
-          <div>
-            <dt>非推奨ルート選択</dt>
-            <dd>{stats.discouragedChoices} 回</dd>
-          </div>
-        </dl>
+        {/*
+          正答率は輪で、内訳は帯で見せる（インフォグラフィック）。
+          図は飾りとして読み上げから外し、同じ数値を下の一覧に文字で置く。
+        */}
+        <div className="training__overview">
+          <RingGauge value={stats.accuracy} caption="正答率" testId="training-accuracy-ring">
+            <span className="training__ring-value" aria-hidden="true">
+              <RollingNumber value={Math.round(stats.accuracy * 100)} />
+              <small>%</small>
+            </span>
+          </RingGauge>
+          <dl data-testid="training-stats">
+            <div>
+              <dt>回答数</dt>
+              <dd data-testid="stat-attempts">{stats.attempts}</dd>
+            </div>
+            <div>
+              <dt>正答率</dt>
+              <dd data-testid="stat-accuracy">{Math.round(stats.accuracy * 100)}%</dd>
+            </div>
+            <div>
+              <dt>平均回答時間</dt>
+              <dd>{(stats.averageMs / 1000).toFixed(1)} 秒</dd>
+            </div>
+            <div>
+              <dt>連続正解</dt>
+              <dd>
+                {stats.currentStreak}（最高 {stats.bestStreak}）
+              </dd>
+            </div>
+            <div>
+              <dt>非推奨ルート選択</dt>
+              <dd>{stats.discouragedChoices} 回</dd>
+            </div>
+          </dl>
+        </div>
 
-        {stats.byGrade && (
-          <p className="training__grades">
-            S {stats.byGrade.S} / A {stats.byGrade.A} / B {stats.byGrade.B} / C {stats.byGrade.C} /
-            不成立 {stats.byGrade.invalid}
-          </p>
+        {stats.attempts > 0 && (
+          <div className="training__grade-mix">
+            <h3 className="training__subheading">回答の推奨度</h3>
+            <StackedBar
+              testId="training-grade-bar"
+              segments={GRADE_SEGMENTS.map((segment) => ({
+                key: segment.key,
+                label: segment.label,
+                count: stats.byGrade[segment.key],
+                tone: segment.key,
+              }))}
+            />
+          </div>
         )}
 
         {stats.weakScores.length > 0 && (
@@ -664,70 +774,80 @@ export function TrainingPage() {
           </p>
         )}
 
-        {stats.byCategory.length > 0 && (
-          <table className="training__table" data-testid="training-by-category">
-            <caption>学習カテゴリ別</caption>
-            <thead>
-              <tr>
-                <th scope="col">カテゴリ</th>
-                <th scope="col">回答</th>
-                <th scope="col">正答率</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.byCategory.map((item) => (
-                <tr key={item.key}>
-                  <th scope="row">{trainingCategoryLabel(item.key)}</th>
-                  <td>{item.attempts}</td>
-                  <td>{Math.round(item.accuracy * 100)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {stats.byScoreBand.length > 0 && (
-          <table className="training__table">
-            <caption>スコア帯別</caption>
-            <thead>
-              <tr>
-                <th scope="col">帯</th>
-                <th scope="col">回答</th>
-                <th scope="col">正答率</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.byScoreBand.map((item) => (
-                <tr key={item.key}>
-                  <th scope="row">{item.key}</th>
-                  <td>{item.attempts}</td>
-                  <td>{Math.round(item.accuracy * 100)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {stats.byFinishDouble.length > 0 && (
-          <table className="training__table">
-            <caption>上がりダブル別</caption>
-            <thead>
-              <tr>
-                <th scope="col">ダブル</th>
-                <th scope="col">回答</th>
-                <th scope="col">正答率</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.byFinishDouble.map((item) => (
-                <tr key={item.key}>
-                  <th scope="row">{item.key}</th>
-                  <td>{item.attempts}</td>
-                  <td>{Math.round(item.accuracy * 100)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* 内訳の表は、見たいものだけを開くアコーディオンにまとめる（最初の 1 つは開いておく）。 */}
+        {(stats.byCategory.length > 0 || stats.byScoreBand.length > 0 || stats.byFinishDouble.length > 0) && (
+          <Accordion
+            className="training__breakdown"
+            testId="training-breakdown"
+            headingLevel={3}
+            defaultOpenIds={['category']}
+            items={[
+              ...(stats.byCategory.length > 0
+                ? [
+                    {
+                      id: 'category',
+                      title: '学習カテゴリ別',
+                      meta: `${stats.byCategory.length} 項目`,
+                      content: (
+                        <BreakdownTable
+                          testId="training-by-category"
+                          caption="学習カテゴリ別"
+                          keyHeader="カテゴリ"
+                          rows={stats.byCategory.map((item) => ({
+                            key: item.key,
+                            label: trainingCategoryLabel(item.key),
+                            attempts: item.attempts,
+                            accuracy: item.accuracy,
+                          }))}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+              ...(stats.byScoreBand.length > 0
+                ? [
+                    {
+                      id: 'band',
+                      title: 'スコア帯別',
+                      meta: `${stats.byScoreBand.length} 帯`,
+                      content: (
+                        <BreakdownTable
+                          caption="スコア帯別"
+                          keyHeader="帯"
+                          rows={stats.byScoreBand.map((item) => ({
+                            key: item.key,
+                            label: item.key,
+                            attempts: item.attempts,
+                            accuracy: item.accuracy,
+                          }))}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+              ...(stats.byFinishDouble.length > 0
+                ? [
+                    {
+                      id: 'double',
+                      title: '上がりダブル別',
+                      meta: `${stats.byFinishDouble.length} 種`,
+                      content: (
+                        <BreakdownTable
+                          caption="上がりダブル別"
+                          keyHeader="ダブル"
+                          rows={stats.byFinishDouble.map((item) => ({
+                            key: item.key,
+                            label: item.key,
+                            attempts: item.attempts,
+                            accuracy: item.accuracy,
+                          }))}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         )}
 
         {stats.migrationSkippedCount > 0 && (
@@ -740,14 +860,78 @@ export function TrainingPage() {
           type="button"
           className="training__clear"
           data-testid="clear-history"
-          onClick={() => {
-            clearHistory();
-            setHistory(loadHistory());
-          }}
+          disabled={stats.attempts === 0 && stats.migrationSkippedCount === 0}
+          onClick={() => setConfirmClear(true)}
         >
           学習履歴を消去
         </button>
+
+        <ConfirmDialog
+          open={confirmClear}
+          title="学習履歴を消去しますか？"
+          confirmLabel="消去する"
+          tone="danger"
+          testId="confirm-clear-history"
+          onCancel={() => setConfirmClear(false)}
+          onConfirm={() => {
+            clearHistory();
+            setHistory(loadHistory());
+            setConfirmClear(false);
+          }}
+        >
+          <p>
+            回答 {stats.attempts} 件の記録と、苦手問題の重点出題に使う情報を消去します。
+            この操作は取り消せません。
+          </p>
+        </ConfirmDialog>
       </section>
     </div>
+  );
+}
+
+interface BreakdownRow {
+  readonly key: string;
+  readonly label: string;
+  readonly attempts: number;
+  readonly accuracy: number;
+}
+
+/** 内訳の表。正答率の列に、同じ値の横棒を添える。 */
+function BreakdownTable({
+  caption,
+  keyHeader,
+  rows,
+  testId,
+}: {
+  readonly caption: string;
+  readonly keyHeader: string;
+  readonly rows: readonly BreakdownRow[];
+  readonly testId?: string;
+}) {
+  return (
+    <table className="training__table" data-testid={testId}>
+      <caption className="visually-hidden">{caption}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{keyHeader}</th>
+          <th scope="col">回答</th>
+          <th scope="col">正答率</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, index) => (
+          <tr key={row.key}>
+            <th scope="row">{row.label}</th>
+            <td>{row.attempts}</td>
+            <td>
+              <span className="training__accuracy-cell">
+                <Meter value={row.accuracy} index={index} />
+                <span>{Math.round(row.accuracy * 100)}%</span>
+              </span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

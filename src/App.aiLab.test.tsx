@@ -4,7 +4,7 @@
  * 既定（Gate が閉）では設定画面に開発者向けの項目を出さず、一般ユーザーの画面は Production と同じ。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 afterEach(() => {
@@ -23,6 +23,7 @@ describe('AI MODEL LAB の入口', () => {
     vi.stubEnv('VITE_AI_FEATURES', '');
     const user = userEvent.setup();
     await renderApp();
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
     expect(screen.queryByTestId('developer-section')).not.toBeInTheDocument();
     expect(screen.queryByTestId('open-ai-lab')).not.toBeInTheDocument();
@@ -32,9 +33,11 @@ describe('AI MODEL LAB の入口', () => {
     vi.stubEnv('VITE_AI_FEATURES', 'on');
     const user = userEvent.setup();
     await renderApp();
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
     await user.click(screen.getByTestId('open-ai-lab'));
     expect(await screen.findByTestId('ai-model-lab', {}, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.getByText('AI MODEL LAB')).toBeInTheDocument();
+    // パンくずリストにも同じ名前が出るので、Lab の画面の中で確かめる。
+    expect(within(screen.getByTestId('ai-model-lab')).getByText('AI MODEL LAB')).toBeInTheDocument();
   }, 20_000);
 });

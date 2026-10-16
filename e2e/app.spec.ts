@@ -329,6 +329,7 @@ test('学習履歴がリロード後も復元される', async ({ page }) => {
 });
 
 test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   // 得意ダブルの既定は未設定（v1.3.5）。選んだものが残ることを見る。
   await expect(page.getByTestId('preferred-doubles')).toContainText('まだ選ばれていません');
@@ -339,6 +340,7 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
   await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
 
   await page.reload();
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('preferred-doubles')).toContainText('D16');
   await expect(page.getByTestId('preferred-doubles')).toContainText('D20');
@@ -349,6 +351,7 @@ test('MY ROUTE の設定がリロード後も残る', async ({ page }) => {
 });
 
 test('Light / Dark テーマを切り替え、リロード後も復元する', async ({ page }) => {
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
 
@@ -363,6 +366,7 @@ test('Light / Dark テーマを切り替え、リロード後も復元する', a
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
 
@@ -384,6 +388,7 @@ test('ユーザー向けUIに「ビジット」を表示しない', async ({ pag
 
   await page.getByTestId('nav-training').click();
   await expect(page.locator('body')).not.toContainText('ビジット');
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.locator('body')).not.toContainText('ビジット');
 });
@@ -542,12 +547,8 @@ test('v1.2: 盤面より下のルートチップから開いても、盤面が�
   const board = page.getByTestId('dartboard');
   await expect(board).toBeVisible();
   // 開いた盤面が viewport の上へ出てしまっていない。
-  expect(
-    await board.evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.bottom > 0 && rect.top < window.innerHeight;
-    }),
-  ).toBe(true);
+  // 移動は smooth scroll なので、止まるまで待ってから見る（toBeInViewport は自動で待つ）。
+  await expect(board).toBeInViewport();
   await expect(page.locator('[data-focused="true"]').first()).toBeVisible();
 });
 
@@ -678,6 +679,7 @@ test('footer は Copyright 表記だけ', async ({ page }) => {
 });
 
 test('設定画面は基準ルートをユーザー向けの言葉で説明する', async ({ page }) => {
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByRole('heading', { name: '基準ルートについて' })).toBeVisible();
   await expect(page.getByTestId('standard-route-note')).toContainText(
@@ -816,7 +818,7 @@ test('TRAINING: MIXED で 10 問を終えられる', async ({ page }) => {
 test('TRAINING: 無限モードは 10 問を超えても続く', async ({ page }) => {
   await page.getByTestId('nav-training').click();
   await page.getByRole('button', { name: '詳細設定' }).click();
-  await page.getByRole('button', { name: '無限' }).click();
+  await page.getByRole('radio', { name: '無限' }).check();
   await page.getByTestId('start-training').click();
 
   for (let i = 0; i < 11; i += 1) {
@@ -1230,6 +1232,7 @@ test('v1.3.5 / v1.3.6: 135 から S5 の 130 / 2 本。未設定なら候補 2 �
   expect(overflows, 'NEXT VISIT の候補表示で横スクロールが出ている').toBe(false);
 
   // 得意ダブルを複数選ぶと、「考慮した場合」の案が 2 件目に並ぶ。
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   for (const id of ['D16', 'D20', 'D8']) {
     await page.getByTestId(`select-${id}`).click();
@@ -1245,6 +1248,7 @@ test('v1.3.5 / v1.3.6: 135 から S5 の 130 / 2 本。未設定なら候補 2 �
   await expect(page.getByTestId('recovery-next-visit-alternative')).toContainText('T19 → T19');
 
   // 並び順が優先度。D20 を第 1 希望にすると、第 1 候補が 40 残しになる。
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await page.getByRole('button', { name: 'D20 を上へ' }).click();
   await openCheckout(page, 135);
@@ -1354,6 +1358,8 @@ test('トップページから参考資料・出典を開き、トップへ戻�
 
 test('参考資料・出典のボタンは、他の画面には増やさない', async ({ page }) => {
   for (const nav of ['nav-checkout', 'nav-setup', 'nav-training', 'nav-settings'] as const) {
+    // 設定はハンバーガーメニューの中にある。
+    if (nav === 'nav-settings') await page.getByTestId('menu-toggle').click();
     await page.getByTestId(nav).click();
     await expect(page.getByTestId('home-references')).toHaveCount(0);
   }

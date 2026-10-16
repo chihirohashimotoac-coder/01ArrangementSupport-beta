@@ -19,6 +19,7 @@ test('通常のビルドでは Lab の入口を出さず、Lab・推論ライブ
   });
 
   await page.goto('/');
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('standard-route-note')).toBeVisible();
   await expect(page.getByTestId('developer-section')).toHaveCount(0);

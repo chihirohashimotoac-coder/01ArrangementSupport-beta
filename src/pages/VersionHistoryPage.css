@@ -73,30 +73,35 @@
   color: var(--text-secondary);
 }
 
-.version-history__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.version-history__list.accordion {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  overflow: visible;
+  background: none;
+  border: 0;
+  border-radius: 0;
 }
 
-.version-history__item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+/* 版ごとの札。開いた版だけを浮かせる。sticky の「トップへ戻る」に隠れない位置へ止める。 */
+.version-history__list .accordion__item {
   min-width: 0;
-  padding: 0.9rem;
+  overflow: hidden;
+  scroll-margin-top: calc(var(--app-safe-top, 0px) + 4rem);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
+  transition: border-color var(--dur-base) ease, box-shadow var(--dur-slow) var(--ease-out);
 }
-
-.version-history__item:first-child {
+.version-history__list .accordion__item + .accordion__item { border-top: 1px solid var(--border); }
+.version-history__list .accordion__item[data-open='true'] {
   border-color: var(--border-strong);
   box-shadow: var(--inner-highlight), var(--shadow-md);
 }
+.version-history__list .accordion__trigger { align-items: start; padding: 0.85rem 0.9rem; }
+.version-history__list .accordion__content { display: grid; gap: 0.45rem; padding: 0 0.9rem 0.9rem; }
+
+.version-history__jump { max-width: 28rem; }
 
 .version-history__meta {
   display: flex;
@@ -129,7 +134,6 @@
 
 .version-history__date {
   flex: 0 0 auto;
-  margin-left: auto;
   font-size: 0.7rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -169,10 +173,5 @@
 }
 
 @media (max-width: 22rem) {
-  .version-history__item {
-    padding: 0.75rem;
-  }
-  .version-history__date {
-    margin-left: 0;
-  }
+  .version-history__list .accordion__trigger { padding: 0.75rem; }
 }

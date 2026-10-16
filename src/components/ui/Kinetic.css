@@ -1,0 +1,62 @@
+/* --- キネティックタイポグラフィ ------------------------------------------ */
+.kinetic { margin: 0; }
+.kinetic__lines { display: block; }
+.kinetic__line { display: block; overflow: hidden; padding-bottom: 0.08em; }
+.kinetic__char {
+  display: inline-block;
+  white-space: pre;
+  animation: kinetic-rise 720ms var(--ease-out-expo) both;
+  animation-delay: var(--k-delay);
+}
+.kinetic__char--em {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  animation-name: kinetic-rise-em;
+}
+/* 強調の札は文字ごとに切れないよう、左右の端だけ角を丸める。 */
+.kinetic__char--em:first-of-type,
+.kinetic__char:not(.kinetic__char--em) + .kinetic__char--em {
+  padding-left: 0.08em;
+  border-radius: var(--radius-xs) 0 0 var(--radius-xs);
+}
+.kinetic__char--em:has(+ .kinetic__char:not(.kinetic__char--em)),
+.kinetic__char--em:last-child {
+  padding-right: 0.08em;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+@keyframes kinetic-rise {
+  0% { opacity: 0; transform: translateY(105%) rotate(6deg); filter: blur(4px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+@keyframes kinetic-rise-em {
+  0% { opacity: 0; transform: translateY(105%); background-color: transparent; color: var(--text); }
+  55% { opacity: 1; transform: none; background-color: transparent; color: var(--text); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* --- オドメーター --------------------------------------------------------- */
+.rolling {
+  display: inline-flex;
+  overflow: hidden;
+  /* 桁が上下へはみ出して見えないよう、行の高さで切る。 */
+  line-height: inherit;
+  vertical-align: bottom;
+}
+.rolling__digit {
+  display: inline-block;
+  animation: rolling-in 520ms var(--ease-spring) both;
+  animation-delay: calc(var(--r-i) * 40ms);
+}
+@keyframes rolling-in {
+  from { opacity: 0; transform: translateY(70%); filter: blur(2px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* --- 一度きりの「スタンプ」（BUST / CHECKOUT! / GAME SHOT） ---------------- */
+@keyframes stamp-in {
+  0% { opacity: 0; transform: scale(1.8); letter-spacing: 0.5em; filter: blur(6px); }
+  55% { opacity: 1; transform: scale(0.94); letter-spacing: 0.06em; filter: none; }
+  100% { opacity: 1; transform: none; }
+}

@@ -1,0 +1,119 @@
+/* カルーセル。横に並べたスライドを scroll-snap で 1 枚ずつ止める。 */
+.carousel { display: grid; gap: var(--space-3); min-width: 0; }
+.carousel__viewport {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+}
+.carousel__track {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.carousel__track::-webkit-scrollbar { display: none; }
+.carousel__slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.carousel__slide[data-active='false'] { opacity: 0.35; }
+
+.carousel__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.carousel__dots {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+/* ドット。押せる面は 32px、見た目は細い札。現在のものは横へ伸び、自動送りの残り時間が満ちていく。 */
+.carousel__dot {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.carousel__dot span {
+  position: relative;
+  display: block;
+  width: 0.5rem;
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border-strong);
+  transition: width 360ms var(--ease-spring), background-color var(--dur-base) ease;
+}
+.carousel__dot[aria-current='true'] span { width: 1.625rem; }
+.carousel__dot[aria-current='true'] span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform-origin: left;
+}
+.carousel[data-playing='true'] .carousel__dot[aria-current='true'] span::after {
+  animation: carousel-progress var(--carousel-ms) linear both;
+}
+.carousel__dot:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--radius-s); }
+
+.carousel__arrows { display: flex; gap: var(--space-1); }
+.carousel__arrow,
+.carousel__play {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.carousel__arrow span {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: translateX(-2px) rotate(45deg);
+}
+.carousel__arrow--prev span { transform: translateX(2px) rotate(-135deg); }
+.carousel__play span[data-icon='pause'] {
+  width: 0.65rem;
+  height: 0.75rem;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+}
+.carousel__play span[data-icon='play'] {
+  width: 0;
+  height: 0;
+  margin-left: 3px;
+  border-top: 0.42rem solid transparent;
+  border-bottom: 0.42rem solid transparent;
+  border-left: 0.66rem solid currentColor;
+}
+@media (hover: hover) {
+  .carousel__arrow:hover, .carousel__play:hover { color: var(--text); border-color: var(--text-dim); }
+  .carousel__arrow--next:hover span { transform: translateX(1px) rotate(45deg); }
+  .carousel__arrow--prev:hover span { transform: translateX(-1px) rotate(-135deg); }
+}
+
+@keyframes carousel-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}

@@ -206,7 +206,7 @@ describe('PR #1 レビュー指摘の回帰テスト', () => {
     expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
 
     await user.click(screen.getByRole('button', { name: '詳細設定' }));
-    await user.click(screen.getByRole('button', { name: '30問' }));
+    await user.click(screen.getByRole('radio', { name: '30問' }));
 
     // 進行中のセッションは開始時の設定（10 問）のまま。
     expect(screen.getByTestId('training-progress')).toHaveTextContent('1 / 10 問目');
@@ -308,7 +308,13 @@ describe('TRAINING 画面', () => {
     await user.click(screen.getByTestId('training-submit'));
     expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
 
+    // 取り消せない操作なので、確認ダイアログを挟む。キャンセルでは何も消えない。
     await user.click(screen.getByTestId('clear-history'));
+    await user.click(screen.getByTestId('confirm-clear-history-cancel'));
+    expect(screen.getByTestId('stat-attempts')).toHaveTextContent('1');
+
+    await user.click(screen.getByTestId('clear-history'));
+    await user.click(screen.getByTestId('confirm-clear-history-confirm'));
     expect(screen.getByTestId('stat-attempts')).toHaveTextContent('0');
   });
 });
@@ -317,6 +323,7 @@ describe('設定画面', () => {
   it('得意ダブルは既定で何も選ばれておらず、複数を順位づけできる', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
     // 既定は「未設定」。アプリ側で勝手に順位を持たない（v1.3.5）。
@@ -604,9 +611,11 @@ describe('v1.1 ユーザー向け文言', () => {
   it('設定画面に開発内部の情報を出さない', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
-    const text = screen.getByTestId('nav-settings').closest('.app')?.textContent ?? '';
+    // メニューは閉じているので、画面に出ている内容だけを読む。
+    const text = document.querySelector('.app')?.textContent ?? '';
     for (const phrase of ['添付', '第1候補', 'human-approved-v1', '123 件', '一次資料', 'Excel']) {
       expect(text).not.toContain(phrase);
     }
@@ -617,6 +626,7 @@ describe('v1.1 ユーザー向け文言', () => {
   it('設定画面に基準ルートのユーザー向け説明が出る', async () => {
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
     expect(screen.getByRole('heading', { name: '基準ルートについて' })).toBeInTheDocument();
@@ -926,6 +936,7 @@ describe('v1.3 テーマとユーザー向け文言', () => {
     document.head.append(themeColor);
     const user = userEvent.setup();
     render(<App />);
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
 
     expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
@@ -970,6 +981,7 @@ describe('v1.3 テーマとユーザー向け文言', () => {
 
     await user.click(screen.getByTestId('nav-training'));
     expect(document.body).not.toHaveTextContent('ビジット');
+    await user.click(screen.getByTestId('menu-toggle'));
     await user.click(screen.getByTestId('nav-settings'));
     expect(document.body).not.toHaveTextContent('ビジット');
   });

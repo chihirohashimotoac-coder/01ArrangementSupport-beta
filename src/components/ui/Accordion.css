@@ -1,0 +1,97 @@
+/*
+ * アコーディオン。1 枚のパネルを罫線で区切り、開いた項目だけが下へ伸びる。
+ * 高さは grid-template-rows（0fr → 1fr）で滑らかに変える（中身の高さを測らない）。
+ */
+.accordion {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+.accordion__item + .accordion__item { border-top: 1px solid var(--border); }
+
+.accordion__heading { margin: 0; font-size: inherit; }
+
+.accordion__trigger {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
+  font-weight: 700;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+/* 開いている項目は左端に細い札を立てる。 */
+.accordion__trigger::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--space-3);
+  bottom: var(--space-3);
+  width: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transition: transform var(--dur-slow) var(--ease-out-expo);
+}
+.accordion__item[data-open='true'] > .accordion__heading .accordion__trigger::before { transform: scaleY(1); }
+.accordion__trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+@media (hover: hover) {
+  .accordion__trigger:hover { background: var(--surface-highlight); }
+}
+
+.accordion__title { min-width: 0; }
+.accordion__meta {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-stretch: 84%;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* 山形。開くと 180° 回る。 */
+.accordion__chevron {
+  width: 0.6rem;
+  height: 0.6rem;
+  margin: 0 0.15rem 0.2rem;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg);
+  transition: transform var(--dur-slow) var(--ease-spring);
+}
+.accordion__item[data-open='true'] > .accordion__heading .accordion__chevron {
+  transform: translateY(0.25rem) rotate(225deg);
+}
+
+.accordion__panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-slow) var(--ease-out-expo), visibility 0s linear var(--dur-slow);
+}
+.accordion__item[data-open='true'] > .accordion__panel {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows var(--dur-slow) var(--ease-out-expo), visibility 0s;
+}
+.accordion__inner { min-height: 0; overflow: hidden; }
+.accordion__content {
+  padding: 0 var(--space-4) var(--space-4);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--dur-base) ease, transform var(--dur-slow) var(--ease-out);
+}
+.accordion__item[data-open='true'] .accordion__content {
+  opacity: 1;
+  transform: none;
+  transition-delay: 60ms;
+}

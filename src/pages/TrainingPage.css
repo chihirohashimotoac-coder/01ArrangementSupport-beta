@@ -365,6 +365,8 @@
   line-height: 1.55;
 }
 
+.training__verdict { animation: verdict-in 560ms var(--ease-out-expo) both; }
+
 .training__verdict--ok {
   background: var(--positive-bg);
   color: var(--positive);
@@ -618,8 +620,7 @@
     gap: var(--space-4) var(--space-6);
   }
   .training__unusable { grid-column: 1 / -1; }
-  .training__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--space-6); }
-  .training__stats > :is(h2, dl, .training__grades, .training__weak, .training__migration, .training__clear) { grid-column: 1 / -1; }
+  .training__presets { grid-column: 1 / -1; }
 }
 
 /*
@@ -643,4 +644,73 @@
     top: var(--space-4);
     margin-bottom: 0;
   }
+}
+
+/* --- UI 部品（ラジオ・プルダウン・インフォグラフィック・アコーディオン） ------ */
+
+/* 出題範囲のプリセット（プルダウン）。2 つを横に並べる。 */
+.training__presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}
+
+/* 出題数・制限時間（ラジオボタン）。凡例は他の設定項目とそろえる。 */
+.training__settings .training__radio legend {
+  float: none;
+  margin-bottom: var(--space-1);
+}
+.training__settings .training__radio { display: block; }
+.training__radio .radio-group__options { max-width: 22rem; }
+
+/* 採点の判定は、左の帯が伸びてから文字が現れる。 */
+@keyframes verdict-in {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+
+/* 学習履歴の概要: 正答率の輪 + 主要な数値。 */
+.training__overview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+}
+.training__ring-value {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: var(--text-3xl);
+  font-weight: 850;
+  font-stretch: 72%;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+}
+.training__ring-value small { margin-left: 0.1rem; font-size: var(--text-base); font-weight: 700; color: var(--text-secondary); }
+
+.training__grade-mix { display: grid; gap: var(--space-2); }
+.training__subheading {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.training__breakdown .accordion__content { padding-top: 0; }
+.training__accuracy-cell {
+  display: grid;
+  grid-template-columns: minmax(3rem, 1fr) 3rem;
+  align-items: center;
+  gap: var(--space-2);
+}
+.training__table tbody tr { transition: background-color var(--dur-base) ease; }
+@media (hover: hover) {
+  .training__table tbody tr:hover { background: var(--surface-highlight); }
+}
+.training__clear:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 狭い画面では輪を上に置き、数値は下で 2 列に並べる（輪の横で縦長にしない）。 */
+@media (max-width: 47.99rem) {
+  .training__overview { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .training__overview dl { width: 100%; }
 }
