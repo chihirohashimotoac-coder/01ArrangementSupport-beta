@@ -116,3 +116,5 @@ SEGMENT_DIFFICULTY・SETUP の重み・GRADE_THRESHOLDS など）が記録され
 ## 6. コミットメッセージ
 
 日本語で、何をなぜ変えたかを書きます。モデル名は書きません。
+
+@AGENTS.md
